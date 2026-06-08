@@ -150,17 +150,21 @@ def calculate_performance(df):
             pm_atual = carteira[ativo]['preco_medio']
 
             if qtde_atual > 0:
-                lucro_prejuizo = (preco - pm_atual) * qtde
+                # O usuário pode ter vendido ativos que foram comprados antes do período analisado pelos PDFs.
+                # Para não estragar a carteira com quantidades negativas e distorcer o resultado:
+                qtde_valida_para_lucro = min(qtde_atual, qtde)
+                lucro_prejuizo = (preco - pm_atual) * qtde_valida_para_lucro
+
                 historico.append({
                     'data': row['data'],
                     'mes_ano': row['data'].strftime('%Y-%m'),
                     'ativo': ativo,
-                    'qtde_vendida': qtde,
+                    'qtde_vendida': qtde_valida_para_lucro,
                     'preco_venda': preco,
                     'preco_medio_compra': pm_atual,
                     'resultado': lucro_prejuizo
                 })
-                carteira[ativo]['qtde'] -= qtde
+                carteira[ativo]['qtde'] -= qtde_valida_para_lucro
 
     # Carteira Atual
     carteira_atual = []
@@ -184,7 +188,7 @@ def calculate_performance(df):
 
 st.title("MonitorBDRs - Análise de Performance")
 
-menu = st.sidebar.selectbox("Menu", ["Importar Notas", "Carteira Atual", "Performance Mensal", "Histórico de Operações"])
+menu = st.sidebar.selectbox("Menu", ["Importar Notas", "Carteira Atual", "Performance Mensal", "Análise Individual de BDR", "Histórico de Operações"])
 
 if menu == "Importar Notas":
     st.header("Importar Notas de Corretagem (PDF)")
@@ -232,6 +236,8 @@ elif menu == "Carteira Atual":
 
 elif menu == "Performance Mensal":
     st.header("Lucros e Prejuízos Mensais")
+    st.info("Atenção: Os valores calculados referem-se ao **Lucro Bruto** das operações. O sistema atualmente não desconta as taxas de corretagem, emolumentos (B3), taxa de liquidação e impostos retidos na fonte (IRRF). Isso pode gerar pequenas discrepâncias em relação às suas planilhas de controle líquido.")
+
     df = load_data(conn)
     _, _, df_mensal = calculate_performance(df)
 
@@ -246,6 +252,74 @@ elif menu == "Performance Mensal":
             st.error(f"Resultado Acumulado: R$ {total_resultado:.2f}")
     else:
         st.info("Nenhuma operação de venda registrada para calcular performance.")
+
+elif menu == "Análise Individual de BDR":
+    st.header("Análise Individual de BDR")
+    df = load_data(conn)
+
+    if not df.empty:
+        ativos_disponiveis = df['ativo'].unique().tolist()
+        ativos_disponiveis.sort()
+        ativo_selecionado = st.selectbox("Selecione a BDR (Ativo):", ativos_disponiveis)
+
+        df['data'] = pd.to_datetime(df['data'], format='%d/%m/%Y')
+        min_date = df['data'].min().date()
+        max_date = df['data'].max().date()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            data_inicio = st.date_input("Data de Início", value=min_date, min_value=min_date, max_value=max_date)
+        with col2:
+            data_fim = st.date_input("Data de Fim", value=max_date, min_value=min_date, max_value=max_date)
+
+        # Seleciona TODAS as operações do ativo para calcular o PM e o lucro corretamente ao longo do tempo
+        df_ativo_completo = df[df['ativo'] == ativo_selecionado].copy()
+
+        if not df_ativo_completo.empty:
+            # Calcula performance no ativo inteiro
+            df_carteira_bdr, df_historico_bdr_completo, df_mensal_bdr = calculate_performance(df_ativo_completo)
+
+            # Filtra apenas a exibição das tabelas para o período solicitado
+            df_filtrado_exibicao = df_ativo_completo[(df_ativo_completo['data'].dt.date >= data_inicio) & (df_ativo_completo['data'].dt.date <= data_fim)].copy()
+            df_filtrado_exibicao['data'] = df_filtrado_exibicao['data'].dt.strftime('%d/%m/%Y')
+
+            st.subheader(f"Operações de {ativo_selecionado} no período selecionado")
+            if not df_filtrado_exibicao.empty:
+                st.dataframe(df_filtrado_exibicao, use_container_width=True)
+            else:
+                st.write("Nenhuma operação de compra/venda neste período específico.")
+
+            # Filtra o histórico de lucros
+            if not df_historico_bdr_completo.empty:
+                df_historico_bdr = df_historico_bdr_completo[(df_historico_bdr_completo['data'].dt.date >= data_inicio) & (df_historico_bdr_completo['data'].dt.date <= data_fim)]
+            else:
+                df_historico_bdr = pd.DataFrame()
+
+            st.subheader("Resumo no Período Selecionado")
+            st.info("Nota: Os lucros/prejuízos representam o valor bruto das operações. Taxas e emolumentos não estão sendo deduzidos.")
+
+            col_a, col_b = st.columns(2)
+
+            with col_a:
+                st.write("**Carteira Resultante (no final do período):**")
+                if not df_carteira_bdr.empty:
+                    st.dataframe(df_carteira_bdr.style.format({"Preço Médio": "R$ {:.2f}", "Valor Investido": "R$ {:.2f}"}))
+                else:
+                    st.write("Sem posição em aberto no período analisado.")
+
+            with col_b:
+                st.write("**Resultado (Lucro/Prejuízo) das Vendas:**")
+                if not df_historico_bdr.empty:
+                    total_resultado = df_historico_bdr['resultado'].sum()
+                    st.metric("Resultado Consolidado", f"R$ {total_resultado:.2f}")
+                    st.dataframe(df_historico_bdr[['data', 'qtde_vendida', 'preco_venda', 'resultado']].style.format({"resultado": "R$ {:.2f}"}))
+                else:
+                    st.write("Nenhuma venda que pudesse calcular lucro encontrada no período.")
+
+        else:
+            st.warning("Nenhuma operação encontrada para este ativo no período selecionado.")
+    else:
+        st.info("O banco de dados está vazio.")
 
 elif menu == "Histórico de Operações":
     st.header("Todas as Operações")
