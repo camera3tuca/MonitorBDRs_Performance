@@ -5,6 +5,8 @@ import re
 import io
 import datetime
 import sqlite3
+import os
+import glob
 
 st.set_page_config(page_title="MonitorBDRs Performance", layout="wide")
 
@@ -24,10 +26,40 @@ def init_db():
             dc TEXT
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS arquivos_processados (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome_arquivo TEXT UNIQUE,
+            data_processamento TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     conn.commit()
     return conn
 
 conn = init_db()
+
+def processar_notas_iniciais(conn):
+    """Lê todas as notas já existentes na pasta e tenta salvar no banco se ainda não foram processadas."""
+    os.makedirs('notas_pdf', exist_ok=True)
+    c = conn.cursor()
+
+    arquivos_pdf = glob.glob('notas_pdf/*.pdf')
+    total_novas = 0
+    for caminho_arquivo in arquivos_pdf:
+        nome_arquivo = os.path.basename(caminho_arquivo)
+
+        # Verifica se o arquivo já foi processado
+        c.execute('SELECT COUNT(*) FROM arquivos_processados WHERE nome_arquivo=?', (nome_arquivo,))
+        if c.fetchone()[0] == 0:
+            trades = parse_pdf(caminho_arquivo)
+            novas = save_to_db(trades, conn)
+            total_novas += novas
+
+            # Marca o arquivo como processado
+            c.execute('INSERT INTO arquivos_processados (nome_arquivo) VALUES (?)', (nome_arquivo,))
+            conn.commit()
+
+    return total_novas
 
 def parse_pdf(file_obj):
     trades = []
@@ -77,6 +109,10 @@ def save_to_db(trades, conn):
             new_trades += 1
     conn.commit()
     return new_trades
+
+# Tenta ler as notas iniciais e avisa apenas no backend/logs (não precisa mostrar toast se não for novo pra não ser chato)
+# Vamos processar as notas e deixar pronto.
+processar_notas_iniciais(conn)
 
 def load_data(conn):
     return pd.read_sql_query("SELECT * FROM operacoes", conn)
@@ -157,11 +193,29 @@ if menu == "Importar Notas":
     if st.button("Processar Notas"):
         if uploaded_files:
             total_novas = 0
+            os.makedirs('notas_pdf', exist_ok=True)
+            c = conn.cursor()
             for file in uploaded_files:
-                trades = parse_pdf(file)
-                novas = save_to_db(trades, conn)
-                total_novas += novas
-            st.success(f"Processamento concluído! {total_novas} novas operações importadas.")
+                nome_arquivo = file.name
+                file_path = os.path.join('notas_pdf', nome_arquivo)
+
+                # Salvar o arquivo fisicamente na pasta notas_pdf
+                with open(file_path, "wb") as f:
+                    f.write(file.getbuffer())
+
+                # Verifica se já foi processado
+                c.execute('SELECT COUNT(*) FROM arquivos_processados WHERE nome_arquivo=?', (nome_arquivo,))
+                if c.fetchone()[0] == 0:
+                    # Processa o arquivo recém-salvo
+                    trades = parse_pdf(file_path)
+                    novas = save_to_db(trades, conn)
+                    total_novas += novas
+
+                    # Marca o arquivo como processado
+                    c.execute('INSERT INTO arquivos_processados (nome_arquivo) VALUES (?)', (nome_arquivo,))
+                    conn.commit()
+
+            st.success(f"Processamento concluído! {total_novas} novas operações importadas e arquivos salvos em notas_pdf/.")
         else:
             st.warning("Por favor, faça o upload de pelo menos um arquivo PDF.")
 
