@@ -1,2 +1,2 @@
 # MonitorBDRs_Performance
-Análise de operações realizadas em Swing trade 
+Análise de operações realizadas
