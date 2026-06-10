@@ -7,6 +7,7 @@ import datetime
 import sqlite3
 import os
 import glob
+import altair as alt
 
 st.set_page_config(page_title="MonitorBDRs Performance", layout="wide")
 
@@ -188,9 +189,65 @@ def calculate_performance(df):
 
 st.title("MonitorBDRs - Análise de Performance")
 
-menu = st.sidebar.selectbox("Menu", ["Importar Notas", "Carteira Atual", "Performance Mensal", "Análise Individual de BDR", "Histórico de Operações"])
+menu = st.sidebar.selectbox("Menu", ["Visão Geral", "Importar Notas", "Carteira Atual", "Performance Mensal", "Análise Individual de BDR", "Histórico de Operações"])
 
-if menu == "Importar Notas":
+if menu == "Visão Geral":
+    st.header("Visão Geral do Portfólio")
+    df = load_data(conn)
+
+    if df.empty:
+        st.info("O banco de dados está vazio. Vá em 'Importar Notas' para começar.")
+    else:
+        df_carteira, df_historico, _ = calculate_performance(df)
+
+        # KPIs principais
+        col1, col2, col3, col4 = st.columns(4)
+
+        total_investido = df_carteira['Valor Investido'].sum() if not df_carteira.empty else 0.0
+        ativos_diferentes = len(df_carteira) if not df_carteira.empty else 0
+
+        lucro_bruto_total = df_historico['resultado'].sum() if not df_historico.empty else 0.0
+
+        if not df_historico.empty:
+            operacoes_vencedoras = len(df_historico[df_historico['resultado'] > 0])
+            total_vendas = len(df_historico)
+            win_rate = (operacoes_vencedoras / total_vendas) * 100 if total_vendas > 0 else 0
+        else:
+            win_rate = 0.0
+
+        col1.metric("Total Investido", f"R$ {total_investido:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+        col2.metric("Lucro Bruto Acumulado", f"R$ {lucro_bruto_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+        col3.metric("Ativos em Carteira", f"{ativos_diferentes}")
+        col4.metric("Win Rate (Vendas com Lucro)", f"{win_rate:.1f}%")
+
+        st.divider()
+
+        # Gráficos
+        if not df_carteira.empty:
+            st.subheader("Distribuição da Carteira")
+
+            # Pega o top 10 ativos e agrupa o resto em "Outros" para o gráfico não ficar ilegível
+            df_chart = df_carteira.sort_values(by='Valor Investido', ascending=False)
+            if len(df_chart) > 10:
+                top10 = df_chart.head(10).copy()
+                outros_valor = df_chart.iloc[10:]['Valor Investido'].sum()
+                outros_df = pd.DataFrame([{'Ativo': 'OUTROS', 'Quantidade': 0, 'Preço Médio': 0, 'Valor Investido': outros_valor}])
+                df_chart = pd.concat([top10, outros_df], ignore_index=True)
+
+            # Usa Altair para criar gráfico de rosca (donut chart)
+            chart = alt.Chart(df_chart).mark_arc(innerRadius=50).encode(
+                theta=alt.Theta(field="Valor Investido", type="quantitative"),
+                color=alt.Color(field="Ativo", type="nominal", legend=alt.Legend(title="Ativos")),
+                tooltip=[alt.Tooltip("Ativo", type="nominal"), alt.Tooltip("Valor Investido", type="quantitative", format=".2f")]
+            ).properties(
+                width=600,
+                height=400
+            )
+            st.altair_chart(chart, use_container_width=True)
+        else:
+            st.write("Carteira atual está vazia.")
+
+elif menu == "Importar Notas":
     st.header("Importar Notas de Corretagem (PDF)")
     uploaded_files = st.file_uploader("Selecione as notas de corretagem (PDF)", accept_multiple_files=True, type=['pdf'])
 
@@ -239,17 +296,36 @@ elif menu == "Performance Mensal":
     st.info("Atenção: Os valores calculados referem-se ao **Lucro Bruto** das operações. O sistema atualmente não desconta as taxas de corretagem, emolumentos (B3), taxa de liquidação e impostos retidos na fonte (IRRF). Isso pode gerar pequenas discrepâncias em relação às suas planilhas de controle líquido.")
 
     df = load_data(conn)
-    _, _, df_mensal = calculate_performance(df)
+    _, df_historico, df_mensal = calculate_performance(df)
 
     if not df_mensal.empty:
         st.bar_chart(data=df_mensal.set_index('mes_ano'))
         st.dataframe(df_mensal.style.format({"resultado": "R$ {:.2f}"}), use_container_width=True)
 
         total_resultado = df_mensal['resultado'].sum()
+
+        # Novas métricas de Análise
+        st.subheader("Análise de Trades")
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+
+        lucros = df_historico[df_historico['resultado'] > 0]['resultado']
+        prejuizos = df_historico[df_historico['resultado'] < 0]['resultado']
+
+        maior_lucro = lucros.max() if not lucros.empty else 0.0
+        maior_prejuizo = prejuizos.min() if not prejuizos.empty else 0.0
+        media_lucros = lucros.mean() if not lucros.empty else 0.0
+        media_prejuizos = prejuizos.mean() if not prejuizos.empty else 0.0
+
+        col_m1.metric("Maior Lucro (Trade)", f"R$ {maior_lucro:.2f}")
+        col_m2.metric("Maior Prejuízo (Trade)", f"R$ {maior_prejuizo:.2f}")
+        col_m3.metric("Média (Trades Vencedores)", f"R$ {media_lucros:.2f}")
+        col_m4.metric("Média (Trades Perdedores)", f"R$ {media_prejuizos:.2f}")
+
+        st.divider()
         if total_resultado > 0:
-            st.success(f"Resultado Acumulado: R$ {total_resultado:.2f}")
+            st.success(f"Resultado Acumulado Total: R$ {total_resultado:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
         else:
-            st.error(f"Resultado Acumulado: R$ {total_resultado:.2f}")
+            st.error(f"Resultado Acumulado Total: R$ {total_resultado:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
     else:
         st.info("Nenhuma operação de venda registrada para calcular performance.")
 
