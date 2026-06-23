@@ -347,7 +347,100 @@ NOME_PARA_TICKER: dict[str, str] = {
     "HASHDEX NCI":          "HASH11",
     "HASHDEX CRYP":         "HASH11",
     "NASDAQ INC DRN":       "N1DA34",
-    # ── Outros ───────────────────────────────────────────────────────────
+    "TREND OURO CI":        "GOLD11",    # Trend ETF Ouro
+    "SP500 VALUE DRE":      "SPXI11",    # ETF S&P500 Value
+    # ── China / Ásia ──────────────────────────────────────────────────────
+    "ALIBABAGR DRN":        "BABA34",    # Alibaba Group
+    "ALIBABAGR DRN ED":     "BABA34",
+    "BAIDU INC DRN ED":     "BIDU34",
+    "KINGSOFT CHL DRN":     "K2SC34",    # Kingsoft Cloud Holdings
+    "KINGSOFT CHL DRN ED":  "K2SC34",
+    "WEIBO CORP DRN":       "W2BO34",    # Weibo Corp
+    "WEIBO CORP DRN ED":    "W2BO34",
+    # ── Variantes de nome truncado Santander ─────────────────────────────
+    # (o PDF trunca nomes longos — cada truncagem vira uma entrada)
+    "ALPHABET DRN":         "GOGL35",    # Alphabet genérico → Cl A
+    "ALPHABET DRN ED":      "GOGL35",
+    "NETFLIX DRN":          "NFLX34",
+    "NETFLIX DRN ED":       "NFLX34",
+    "BERKSHIRE DRN":        "B2RK34",    # Berkshire genérico → Cl B
+    "BERKSHIRE DRN ED":     "B2RK34",
+    "WALT DISNEY DRN":      "DISB34",
+    "WALT DISNEY DRN ED":   "DISB34",
+    "AIRBNB DRN":           "A2BN34",
+    "AIRBNB DRN ED":        "A2BN34",
+    "META PLAT DRN":        "FBOK34",    # Meta Platforms (truncado)
+    "META PLAT DRN ED":     "FBOK34",
+    "ADVANCED MIC DRN":     "A1MD34",    # AMD (truncado diferente)
+    "ADVANCED MIC DRN ED":  "A1MD34",
+    "ORACLE DRN":           "ORCL34",
+    "ORACLE DRN ED":        "ORCL34",
+    "LILLY DRN":            "L1LY34",    # Eli Lilly (truncado)
+    "LILLY DRN ED":         "L1LY34",
+    "SALESFOR INC DRN":     "C2RM34",   # Salesforce (truncado)
+    "SALESFOR INC DRN ED":  "C2RM34",
+    "APPLIED MATE DRN":     "A1PM34",   # Applied Materials (truncado)
+    "APPLIED MATE DRN ED":  "A1PM34",
+    "UBER TECH IN DRN":     "U1BE34",   # Uber (truncado)
+    "UBER TECH IN DRN ED":  "U1BE34",
+    "BOOKING DRN":          "B1KN34",   # Booking Holdings (truncado)
+    "BOOKING DRN ED":       "B1KN34",
+    "FREEPORT DRN":         "F1CX34",   # Freeport-McMoRan (truncado)
+    "FREEPORT DRN ED":      "F1CX34",
+    # ── Tecnologia adicional ──────────────────────────────────────────────
+    "CISCO DRN":            "C1SC34",
+    "CISCO DRN ED":         "C1SC34",
+    "STRATEGY INC DRN":     "M2ST34",   # MicroStrategy (rebrand → Strategy)
+    "STRATEGY INC DRN ED":  "M2ST34",
+    "ROBLOX CORP DRN":      "R2OB34",
+    "ROBLOX CORP DRN ED":   "R2OB34",
+    "AXON ENTERPR DRN":     "A2XN34",   # Axon Enterprise
+    "AXON ENTERPR DRN ED":  "A2XN34",
+    "GOPRO DRN":            "G2PR34",
+    "GOPRO DRN ED":         "G2PR34",
+    "STRIDE INC DRN":       "S2TR34",   # Stride Inc (educação)
+    "STRIDE INC DRN ED":    "S2TR34",
+    "GRUPOCIBEST DRN":      "G2CB34",   # Grupo CI Best
+    "GRUPOCIBEST DRN ED":   "G2CB34",
+    # ── Financeiro adicional ──────────────────────────────────────────────
+    "SCHWAB DRN":           "S1WB34",   # Charles Schwab
+    "SCHWAB DRN ED":        "S1WB34",
+    "VERISK ANALY DRN":     "V1RS34",   # Verisk Analytics
+    "VERISK ANALY DRN ED":  "V1RS34",
+    "MERCADOLIBRE DRN":     "MELI34",   # MercadoLibre
+    "MERCADOLIBRE DRN ED":  "MELI34",
+    "XP INC DR1":           "XPBR31",   # XP Inc
+    "INTER CO DR2":         "INBR32",   # Inter & Co
+    "JBS N.V. DR2":         "JBSS3",    # JBS N.V.
+    # ── Consumo / Outros EUA ──────────────────────────────────────────────
+    "MONSTER BEVE DRN":     "M2ST34",   # Monster Beverage
+    "MONSTER BEVE DRN ED":  "M2ST34",
+    "COTY INC DRN":         "C2OT34",
+    "COTY INC DRN ED":      "C2OT34",
+    "KRAFT HEINZ DRN":      "K1HZ34",
+    "KRAFT HEINZ DRN ED":   "K1HZ34",
+    "PEPSICO INC DRN":      "P1EP34",
+    "PEPSICO INC DRN ED":   "P1EP34",
+    "KOHLS CORP DRN":       "K2SS34",   # Kohl's
+    "KOHLS CORP DRN ED":    "K2SS34",
+    # ── Saúde adicional ───────────────────────────────────────────────────
+    "RELX PLC DRN":         "R1LX34",   # RELX (info & analytics)
+    "RELX PLC DRN ED":      "R1LX34",
+    # ── Telecom ───────────────────────────────────────────────────────────
+    "TELEFONIC DRN":        "TLEF34",   # Telefonica
+    "TELEFONIC DRN ED":     "TLEF34",
+    # ── Automotivo ────────────────────────────────────────────────────────
+    "HONDA MO DRN":         "H1MC34",   # Honda Motor
+    "HONDA MO DRN ED":      "H1MC34",
+    # ── Mineração ─────────────────────────────────────────────────────────
+    "FRANCONEVADA DRN":     "F1NV34",   # Franco-Nevada
+    "FRANCONEVADA DRN ED":  "F1NV34",
+    # ── Brasil adicional ──────────────────────────────────────────────────
+    "EMBRAER ON NM":        "EMBR3",
+    "MARFRIG ON NM":        "MRFG3",
+    "SYN PROP TEC ON ED NM": "SYNE3",   # variante com ED
+    "SYN PROP TEC ON ER NM": "SYNE3",   # variante com ER
+    # ── Outros já no dict mas com variante diferente ──────────────────────
     "CLOUDFLARE DRN ED":    "N2ET34",
     "PAGSEGURO DRN ED":     "PAGS34",
 }
@@ -358,18 +451,22 @@ NOME_PARA_TICKER: dict[str, str] = {
 
 # Conjunto de ativos mapeados para detecção rápida
 _TICKERS_CONHECIDOS = set(NOME_PARA_TICKER.values())
+# Controla ativos já avisados nesta sessão — evita spam de warnings repetidos
+_ATIVOS_JA_AVISADOS: set[str] = set()
 
 
 def normalizar_ativo(nome: str) -> str:
     """Converte nome completo da nota Santander para ticker B3.
-    Loga aviso se ativo não encontrado no mapa (possível novo papel)."""
+    Loga aviso UMA VEZ por sessão se ativo não encontrado no mapa."""
     nome_clean = nome.strip()
     for suf in (" D@", " @", " D#", " D", " #"):
         if nome_clean.endswith(suf):
             nome_clean = nome_clean[:-len(suf)].strip()
     ticker = NOME_PARA_TICKER.get(nome_clean, nome_clean)
     if ticker == nome_clean and nome_clean not in _TICKERS_CONHECIDOS:
-        log.warning("Ativo não mapeado: '%s' — verifique NOME_PARA_TICKER", nome_clean)
+        if nome_clean not in _ATIVOS_JA_AVISADOS:
+            log.warning("Ativo não mapeado: '%s' — adicione em NOME_PARA_TICKER", nome_clean)
+            _ATIVOS_JA_AVISADOS.add(nome_clean)
     return ticker
 
 
