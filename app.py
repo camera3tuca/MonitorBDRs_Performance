@@ -222,6 +222,10 @@ NOME_PARA_TICKER: dict[str, str] = {
     "UNITY SOFTWR DRN":     "U2ST34",
     "WAL MART DRN":         "WALM34",
     "WELLS FARGO DRN":      "WFCO34",
+    # ── Amazon ──
+    "AMAZON DRN":           "AMZO34",
+    # ── Hashdex ──
+    "HASHDEX NCI CI":       "HASH11",
     # Adicione novos ativos aqui conforme aparecerem nas notas
 }
 
