@@ -7,8 +7,20 @@ import datetime
 import sqlite3
 import os
 import glob
+import logging
 import altair as alt
 import numpy as np
+from collections import deque
+
+# ─────────────────────────────────────────────
+# LOGGING
+# ─────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+log = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────
 # CONFIGURAÇÃO DA PÁGINA
@@ -32,7 +44,7 @@ st.markdown("""
     /* ── Fundo ── */
     .stApp { background-color: #0f1117; color: #e2e8f0; }
 
-    /* ── Conteúdo principal: padding generoso para tablet ── */
+    /* ── Conteúdo principal ── */
     .main .block-container {
         padding: 1.5rem 1.25rem 3rem 1.25rem !important;
         max-width: 100% !important;
@@ -47,7 +59,7 @@ st.markdown("""
     [data-testid="stSidebar"] p,
     [data-testid="stSidebar"] span { color: #94a3b8 !important; }
 
-    /* ── KPI cards: altura fixa, valor nunca truncado ── */
+    /* ── KPI cards ── */
     [data-testid="metric-container"] {
         background: linear-gradient(135deg, #1a2035 0%, #1e2535 100%);
         border: 1px solid #2a3548;
@@ -79,11 +91,7 @@ st.markdown("""
         line-height: 1.4 !important;
         overflow: visible !important;
     }
-    /* Impede truncamento em qualquer wrapper interno do metric */
-    [data-testid="metric-container"] > div {
-        overflow: visible !important;
-        width: 100% !important;
-    }
+    [data-testid="metric-container"] > div { overflow: visible !important; width: 100% !important; }
     [data-testid="metric-container"] [data-testid="stMetricValue"] > div {
         overflow: visible !important;
         text-overflow: unset !important;
@@ -95,30 +103,14 @@ st.markdown("""
     }
 
     /* ── Títulos ── */
-    h1 {
-        color: #f1f5f9 !important;
-        font-weight: 700 !important;
-        font-size: 1.7rem !important;
-        letter-spacing: -0.02em;
-        margin-bottom: 0.25rem !important;
-    }
-    h2 {
-        color: #cbd5e1 !important;
-        font-weight: 600 !important;
-        font-size: 1.15rem !important;
-    }
+    h1 { color: #f1f5f9 !important; font-weight: 700 !important; font-size: 1.7rem !important;
+         letter-spacing: -0.02em; margin-bottom: 0.25rem !important; }
+    h2 { color: #cbd5e1 !important; font-weight: 600 !important; font-size: 1.15rem !important; }
     h3 { color: #94a3b8 !important; font-weight: 500 !important; }
 
     /* ── Dataframes ── */
-    [data-testid="stDataFrame"] {
-        border: 1px solid #1e2535 !important;
-        border-radius: 10px !important;
-        overflow: hidden;
-    }
-    /* Fonte maior nas células da tabela */
-    [data-testid="stDataFrame"] td, [data-testid="stDataFrame"] th {
-        font-size: 0.82rem !important;
-    }
+    [data-testid="stDataFrame"] { border: 1px solid #1e2535 !important; border-radius: 10px !important; overflow: hidden; }
+    [data-testid="stDataFrame"] td, [data-testid="stDataFrame"] th { font-size: 0.82rem !important; }
 
     /* ── Divisores ── */
     hr { border-color: #1e2535 !important; margin: 1rem 0 !important; }
@@ -126,13 +118,9 @@ st.markdown("""
     /* ── Botões ── */
     .stButton > button {
         background: linear-gradient(135deg, #2563eb, #1d4ed8);
-        color: white !important;
-        border: none !important;
-        border-radius: 10px !important;
-        font-weight: 600 !important;
-        font-size: 0.9rem !important;
-        padding: 0.6rem 1.5rem !important;
-        width: 100% !important;
+        color: white !important; border: none !important;
+        border-radius: 10px !important; font-weight: 600 !important;
+        font-size: 0.9rem !important; padding: 0.6rem 1.5rem !important; width: 100% !important;
     }
     .stButton > button:hover {
         background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
@@ -144,17 +132,14 @@ st.markdown("""
 
     /* ── Selectbox ── */
     .stSelectbox > div > div {
-        background-color: #1a2035 !important;
-        border-color: #2a3548 !important;
-        color: #e2e8f0 !important;
-        font-size: 0.9rem !important;
+        background-color: #1a2035 !important; border-color: #2a3548 !important;
+        color: #e2e8f0 !important; font-size: 0.9rem !important;
     }
 
     /* ── Upload ── */
     [data-testid="stFileUploadDropzone"] {
         background-color: #1a2035 !important;
-        border: 2px dashed #2a3548 !important;
-        border-radius: 10px !important;
+        border: 2px dashed #2a3548 !important; border-radius: 10px !important;
     }
 
     /* ── Badges ── */
@@ -162,20 +147,36 @@ st.markdown("""
     .badge-neg { color: #ef4444; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
     .badge-neu { color: #94a3b8; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
 
-    /* ── Caption / helper text ── */
-    [data-testid="stCaptionContainer"] p {
-        font-size: 0.78rem !important;
-        color: #64748b !important;
+    /* ── Caption ── */
+    [data-testid="stCaptionContainer"] p { font-size: 0.78rem !important; color: #64748b !important; }
+
+    /* ── Info box personalizado ── */
+    .info-box {
+        background: linear-gradient(135deg, #1a2035 0%, #1e2535 100%);
+        border: 1px solid #2a3548; border-left: 4px solid #3b82f6;
+        border-radius: 10px; padding: 14px 16px; margin: 8px 0;
+        font-size: 0.88rem; color: #cbd5e1;
+    }
+    .warn-box {
+        background: linear-gradient(135deg, #1a2035 0%, #1e2535 100%);
+        border: 1px solid #2a3548; border-left: 4px solid #f59e0b;
+        border-radius: 10px; padding: 14px 16px; margin: 8px 0;
+        font-size: 0.88rem; color: #cbd5e1;
     }
 </style>
 """, unsafe_allow_html=True)
 
 
+# ─────────────────────────────────────────────────────────────────────
+# CONSTANTES
+# ─────────────────────────────────────────────────────────────────────
+MAX_ATIVOS_PIZZA = 12
+CDI_ANUAL_ESTIMADO = 0.1065   # CDI aprox. para benchmark (ajuste conforme necessário)
 
 # ─────────────────────────────────────────────────────────────────────
 # MAPA: nome completo nas notas Santander → ticker B3
 # ─────────────────────────────────────────────────────────────────────
-NOME_PARA_TICKER: dict = {
+NOME_PARA_TICKER: dict[str, str] = {
     "ALBEMARLE CO DRN":     "A1LB34",
     "AMERICAN EXP DRN":     "AXPB34",
     "AMERICAN EXP DRN ED":  "AXPB34",
@@ -224,32 +225,38 @@ NOME_PARA_TICKER: dict = {
     # Adicione novos ativos aqui conforme aparecerem nas notas
 }
 
+# Conjunto de ativos mapeados para detecção rápida
+_TICKERS_CONHECIDOS = set(NOME_PARA_TICKER.values())
+
 
 def normalizar_ativo(nome: str) -> str:
     """Converte nome completo da nota Santander para ticker B3.
-    Mantém o original se não encontrado no mapa (forward-compatible)."""
+    Loga aviso se ativo não encontrado no mapa (possível novo papel)."""
     nome_clean = nome.strip()
-    # Remove sufixos de observação que possam ter vazado para o nome
     for suf in (" D@", " @", " D#", " D", " #"):
         if nome_clean.endswith(suf):
             nome_clean = nome_clean[:-len(suf)].strip()
-    return NOME_PARA_TICKER.get(nome_clean, nome_clean)
+    ticker = NOME_PARA_TICKER.get(nome_clean, nome_clean)
+    if ticker == nome_clean and nome_clean not in _TICKERS_CONHECIDOS:
+        log.warning("Ativo não mapeado: '%s' — verifique NOME_PARA_TICKER", nome_clean)
+    return ticker
+
 
 # ─────────────────────────────────────────────
 # BANCO DE DADOS
 # ─────────────────────────────────────────────
-def init_db():
-    conn = sqlite3.connect('carteira.db')
+def init_db() -> sqlite3.Connection:
+    conn = sqlite3.connect('carteira.db', check_same_thread=False)
     c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS operacoes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data TEXT,
-            cv TEXT,
-            ativo TEXT,
-            quantidade INTEGER,
-            preco REAL,
-            valor REAL,
+            data TEXT NOT NULL,
+            cv TEXT NOT NULL,
+            ativo TEXT NOT NULL,
+            quantidade INTEGER NOT NULL,
+            preco REAL NOT NULL,
+            valor REAL NOT NULL,
             dc TEXT,
             taxa_rateada REAL DEFAULT 0.0,
             preco_liquido REAL DEFAULT 0.0,
@@ -257,17 +264,23 @@ def init_db():
             nr_nota TEXT DEFAULT ''
         )
     ''')
-    # Migração: adiciona colunas se não existirem (banco já criado)
-    for col, tipo, default in [
+    # Migração segura: adiciona colunas ausentes
+    colunas_migrar = [
         ('taxa_rateada',  'REAL',    '0.0'),
         ('preco_liquido', 'REAL',    '0.0'),
         ('daytrade',      'INTEGER', '0'),
         ('nr_nota',       'TEXT',    "''"),
-    ]:
+    ]
+    for col, tipo, default in colunas_migrar:
         try:
+            # Valores são todos literais hardcoded — sem risco de injeção
             c.execute(f"ALTER TABLE operacoes ADD COLUMN {col} {tipo} DEFAULT {default}")
-        except Exception:
-            pass
+            log.info("Coluna '%s' adicionada ao schema.", col)
+        except sqlite3.OperationalError:
+            pass  # Coluna já existe — comportamento esperado
+        except Exception as exc:
+            log.error("Falha na migração da coluna '%s': %s", col, exc)
+
     c.execute('''
         CREATE TABLE IF NOT EXISTS arquivos_processados (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -286,29 +299,40 @@ conn = init_db()
 # PARSE DE PDF — com taxas do Resumo Financeiro
 # ─────────────────────────────────────────────
 def _br(s: str) -> float:
-    """Converte string numérica BR para float."""
+    """Converte string numérica BR para float. Retorna 0.0 em caso de falha."""
     try:
         return float(s.strip().replace('.', '').replace(',', '.'))
-    except Exception:
+    except (ValueError, AttributeError):
         return 0.0
 
 
-def parse_pdf(file_obj):
+def _safe_float(value, default: float = 0.0) -> float:
+    """Converte valor para float com fallback seguro."""
+    try:
+        v = float(value)
+        return v if np.isfinite(v) else default
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_pdf(file_obj) -> list[dict]:
     """
     Lê nota(s) de corretagem Santander e retorna lista de operações com:
-    - preco         : preço bruto da operação
-    - taxa_rateada  : fração das taxas da nota rateada pelo valor da operação
-    - preco_liquido : preço ajustado pelas taxas (compra sobe, venda desce)
-    - daytrade      : 1 se operação com flag D/D@
-    - nr_nota       : número da nota de corretagem
+      - preco          : preço bruto
+      - taxa_rateada   : fração das taxas rateada pelo valor da operação
+      - preco_liquido  : preço ajustado pelas taxas
+      - daytrade       : 1 se operação com flag D/D@
+      - nr_nota        : número da nota de corretagem
     """
     notas = []
     current_nota = None
+    ativos_nao_mapeados: set[str] = set()
 
     with pdfplumber.open(file_obj) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages, 1):
             text = page.extract_text()
             if not text:
+                log.debug("Página %d sem texto — ignorada.", page_num)
                 continue
             lines = text.split('\n')
 
@@ -326,6 +350,7 @@ def parse_pdf(file_obj):
                         'corretagem': 0.0, 'irrf': 0.0,
                         'outras': 0.0, 'iss': 0.0,
                     }
+                    log.debug("Nota %s detectada em %s.", hdr.group(1), hdr.group(2))
                     continue
 
                 if current_nota is None:
@@ -338,13 +363,25 @@ def parse_pdf(file_obj):
                 )
                 if op:
                     cv    = op.group(1)
-                    nome  = normalizar_ativo(op.group(3).strip())
-                    obs   = op.group(4).strip()       # @, D, D@, #, etc.
-                    qty   = int(op.group(5).replace('.', ''))
+                    nome_bruto = op.group(3).strip()
+                    nome  = normalizar_ativo(nome_bruto)
+                    obs   = op.group(4).strip()
+                    qty_str = op.group(5).replace('.', '')
+
+                    # Valida quantidade
+                    if not qty_str.isdigit() or int(qty_str) <= 0:
+                        log.warning("Quantidade inválida '%s' na linha: %s", qty_str, line.strip())
+                        continue
+                    qty = int(qty_str)
+
                     preco = _br(op.group(6))
                     valor = _br(op.group(7))
                     dc    = op.group(8)
                     is_dt = 'D' in obs
+
+                    if nome not in NOME_PARA_TICKER.values() and nome == nome_bruto:
+                        ativos_nao_mapeados.add(nome_bruto)
+
                     current_nota['operacoes'].append({
                         'data': current_nota['data'],
                         'nr_nota': current_nota['nr_nota'],
@@ -355,61 +392,81 @@ def parse_pdf(file_obj):
                     })
 
                 # ── Taxas do Resumo Financeiro ──
-                def _taxa(pat):
+                def _taxa(pat: str) -> float:
                     m = re.search(pat, line)
                     return _br(m.group(1)) if m else 0.0
 
-                current_nota['liq']       += _taxa(r'Taxa de liquidação/CCP\s+([\d\.,]+)')
-                current_nota['emol']      += _taxa(r'^Emolumentos\s+([\d\.,]+)')
-                current_nota['corretagem']+= _taxa(r'^Clearing\s+([\d\.,]+)\s+D$')
-                current_nota['iss']       += _taxa(r'ISS.*?([\d\.,]+)\s+D$')
-                current_nota['outras']    += _taxa(r'^Outras Despesas\s+([\d\.,]+)\s+D$')
-                current_nota['irrf']      += _taxa(r'I\.R\.R\.F\. s/ operações.*?([\d\.,]+)\s+D$')
+                current_nota['liq']        += _taxa(r'Taxa de liquidação/CCP\s+([\d\.,]+)')
+                current_nota['emol']       += _taxa(r'^Emolumentos\s+([\d\.,]+)')
+                current_nota['corretagem'] += _taxa(r'^Clearing\s+([\d\.,]+)\s+D$')
+                current_nota['iss']        += _taxa(r'ISS.*?([\d\.,]+)\s+D$')
+                current_nota['outras']     += _taxa(r'^Outras Despesas\s+([\d\.,]+)\s+D$')
+                current_nota['irrf']       += _taxa(r'I\.R\.R\.F\. s/ operações.*?([\d\.,]+)\s+D$')
 
     if current_nota:
         notas.append(current_nota)
 
+    if ativos_nao_mapeados:
+        log.warning("Ativos sem ticker mapeado: %s", ", ".join(sorted(ativos_nao_mapeados)))
+
     # ── Rateia taxas por operação, proporcional ao valor ──
-    trades = []
+    trades: list[dict] = []
     for nota in notas:
         ops = nota['operacoes']
         if not ops:
+            log.warning("Nota %s sem operações.", nota['nr_nota'])
             continue
+
         total_taxas = (nota['liq'] + nota['emol'] + nota['corretagem'] +
                        nota['iss'] + nota['outras'] + nota['irrf'])
         total_valor = sum(o['valor'] for o in ops)
 
         for o in ops:
-            peso = (o['valor'] / total_valor) if total_valor > 0 else 0
+            quantidade = o['quantidade']
+            if quantidade <= 0:
+                log.warning("Operação ignorada: quantidade=%d em %s/%s", quantidade, o['ativo'], o['data'])
+                continue
+
+            peso = (o['valor'] / total_valor) if total_valor > 0 else (1.0 / len(ops))
             taxa_op = round(total_taxas * peso, 6)
-            # Compra: custo sobe. Venda: receita líquida cai.
+
             if o['cv'] == 'C':
-                preco_liq = (o['valor'] + taxa_op) / o['quantidade']
+                preco_liq = (o['valor'] + taxa_op) / quantidade
             else:
-                preco_liq = (o['valor'] - taxa_op) / o['quantidade']
+                preco_liq = (o['valor'] - taxa_op) / quantidade
+
             trades.append({
-                'data':         o['data'],
-                'cv':           o['cv'],
-                'ativo':        o['ativo'],
-                'quantidade':   o['quantidade'],
-                'preco':        o['preco'],
-                'valor':        o['valor'],
-                'dc':           o['dc'],
-                'taxa_rateada': taxa_op,
+                'data':          o['data'],
+                'cv':            o['cv'],
+                'ativo':         o['ativo'],
+                'quantidade':    quantidade,
+                'preco':         o['preco'],
+                'valor':         o['valor'],
+                'dc':            o['dc'],
+                'taxa_rateada':  taxa_op,
                 'preco_liquido': round(preco_liq, 6),
-                'daytrade':     o['daytrade'],
-                'nr_nota':      o['nr_nota'],
+                'daytrade':      o['daytrade'],
+                'nr_nota':       o['nr_nota'],
             })
+
+    log.info("PDF parseado: %d nota(s), %d operação(ões).", len(notas), len(trades))
     return trades
 
 
-def save_to_db(trades, conn):
+def save_to_db(trades: list[dict], conn: sqlite3.Connection) -> int:
+    """Salva operações novas no banco. Usa nr_nota na deduplicação."""
     c = conn.cursor()
     new_trades = 0
     for t in trades:
+        # Validações básicas antes de inserir
+        if not t.get('ativo') or not t.get('data') or t.get('quantidade', 0) <= 0:
+            log.warning("Operação inválida ignorada: %s", t)
+            continue
+
         c.execute(
-            'SELECT COUNT(*) FROM operacoes WHERE data=? AND cv=? AND ativo=? AND quantidade=? AND preco=?',
-            (t['data'], t['cv'], t['ativo'], t['quantidade'], t['preco'])
+            '''SELECT COUNT(*) FROM operacoes
+               WHERE data=? AND cv=? AND ativo=? AND quantidade=? AND preco=? AND nr_nota=?''',
+            (t['data'], t['cv'], t['ativo'], t['quantidade'], t['preco'], t.get('nr_nota', ''))
         )
         if c.fetchone()[0] == 0:
             c.execute(
@@ -418,7 +475,7 @@ def save_to_db(trades, conn):
                      taxa_rateada, preco_liquido, daytrade, nr_nota)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
                 (t['data'], t['cv'], t['ativo'], t['quantidade'],
-                 t['preco'], t['valor'], t['dc'],
+                 t['preco'], t['valor'], t.get('dc', ''),
                  t.get('taxa_rateada', 0.0), t.get('preco_liquido', t['preco']),
                  t.get('daytrade', 0), t.get('nr_nota', ''))
             )
@@ -427,11 +484,10 @@ def save_to_db(trades, conn):
     return new_trades
 
 
-def processar_notas_iniciais(conn) -> tuple[int, list[str]]:
+def processar_notas_iniciais(conn: sqlite3.Connection) -> tuple[int, list[str]]:
     """
     Varre notas_pdf/ e processa PDFs ainda não registrados.
-    Retorna (total_novas_operacoes, lista_de_arquivos_novos).
-    Seguro para chamar múltiplas vezes — idempotente.
+    Idempotente — seguro para chamar múltiplas vezes.
     """
     os.makedirs('notas_pdf', exist_ok=True)
     c = conn.cursor()
@@ -449,141 +505,153 @@ def processar_notas_iniciais(conn) -> tuple[int, list[str]]:
                 arquivos_novos.append(nome)
                 c.execute('INSERT OR IGNORE INTO arquivos_processados (nome_arquivo) VALUES (?)', (nome,))
                 conn.commit()
-            except Exception as e:
-                st.warning(f"Erro ao processar {nome}: {e}")
+                log.info("Arquivo '%s' processado: %d operação(ões) novas.", nome, novas)
+            except Exception as exc:
+                log.error("Erro ao processar '%s': %s", nome, exc, exc_info=True)
+                st.warning(f"Erro ao processar {nome}: {exc}")
 
     return total_novas, arquivos_novos
 
 
-# Processa notas já existentes na pasta ao iniciar
+# Processa notas existentes na pasta ao iniciar
 _novas_inicio, _arqs_inicio = processar_notas_iniciais(conn)
 if _arqs_inicio:
     st.toast(f"📂 {len(_arqs_inicio)} nota(s) nova(s) processada(s) da pasta notas_pdf/", icon="✅")
 
 
-def load_data(conn):
+def load_data(conn: sqlite3.Connection) -> pd.DataFrame:
     return pd.read_sql_query("SELECT * FROM operacoes ORDER BY data ASC, id ASC", conn)
 
 
 # ─────────────────────────────────────────────
 # ENGINE DE CÁLCULO DE PERFORMANCE
 # ─────────────────────────────────────────────
-def calculate_performance(df):
+def calculate_performance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Calcula carteira atual, histórico de trades fechados e resultado mensal.
-    Retorna: df_carteira, df_historico, df_mensal
+    Retorna: (df_carteira, df_historico, df_mensal)
     """
     if df.empty:
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     df = df.copy()
     df['data'] = pd.to_datetime(df['data'], format='%d/%m/%Y', errors='coerce')
-    df = df.dropna(subset=['data']).sort_values('data')
+    invalidas = df['data'].isna().sum()
+    if invalidas > 0:
+        log.warning("%d data(s) inválida(s) descartada(s).", invalidas)
+    df = df.dropna(subset=['data']).sort_values(['data', 'id'])
 
-    carteira = {}   # {ativo: {qtde, preco_medio, custo_total}}
-    historico = []
+    carteira: dict[str, dict] = {}
+    historico: list[dict] = []
 
-    # ── Pré-processa DayTrades: agrupa compras DT por (data, ativo, nr_nota)
-    # para parear FIFO com vendas DT e calcular resultado correto
-    dt_compras = {}   # (data, ativo, nr_nota) → deque de preços_liq
-    from collections import deque
+    # ── Pré-processa compras DayTrade: FIFO por (data, ativo, nr_nota) ──
+    dt_compras: dict[tuple, deque] = {}
     for _, row in df.iterrows():
-        if not bool(row.get('daytrade', 0)):
+        if not bool(row.get('daytrade', 0)) or row['cv'] != 'C':
             continue
         key = (str(row['data'])[:10], row['ativo'], str(row.get('nr_nota', '')))
-        if row['cv'] == 'C':
-            if key not in dt_compras:
-                dt_compras[key] = deque()
-            pliq = float(row['preco_liquido']) if 'preco_liquido' in row and row['preco_liquido'] else float(row['preco'])
-            for _ in range(int(row['quantidade'])):
-                dt_compras[key].append(pliq)
+        if key not in dt_compras:
+            dt_compras[key] = deque()
+        pliq = _safe_float(row.get('preco_liquido') or row.get('preco'))
+        qtde = int(row.get('quantidade', 0))
+        for _ in range(qtde):
+            dt_compras[key].append(pliq)
 
     for _, row in df.iterrows():
-        ativo = row['ativo']
-        qtde = row['quantidade']
-        preco_liq = float(row['preco_liquido']) if 'preco_liquido' in row and row['preco_liquido'] else float(row['preco'])
-        preco_bruto = float(row['preco'])
-        is_dt = bool(row.get('daytrade', 0))
-        nr_nota = str(row.get('nr_nota', ''))
-        data_str = str(row['data'])[:10]
+        ativo      = row['ativo']
+        qtde       = int(row.get('quantidade', 0))
+        preco_liq  = _safe_float(row.get('preco_liquido') or row.get('preco'))
+        preco_bruto = _safe_float(row.get('preco'))
+        is_dt      = bool(row.get('daytrade', 0))
+        nr_nota    = str(row.get('nr_nota', ''))
+        data_str   = str(row['data'])[:10]
+
+        if qtde <= 0:
+            continue
 
         if ativo not in carteira:
             carteira[ativo] = {'qtde': 0, 'preco_medio': 0.0, 'custo_total': 0.0}
 
         if row['cv'] == 'C':
-            if is_dt:
-                pass  # DT compra já pré-processado acima
-            else:
+            if not is_dt:
                 pos = carteira[ativo]
-                nova_qtde = pos['qtde'] + qtde
+                nova_qtde  = pos['qtde'] + qtde
                 novo_custo = pos['custo_total'] + (qtde * preco_liq)
-                pos['qtde'] = nova_qtde
+                pos['qtde']        = nova_qtde
                 pos['custo_total'] = novo_custo
                 pos['preco_medio'] = novo_custo / nova_qtde if nova_qtde > 0 else 0.0
 
         elif row['cv'] == 'V':
             if is_dt:
-                # Pareia com compras DT FIFO da mesma nota
                 key = (data_str, ativo, nr_nota)
                 fila = dt_compras.get(key, deque())
-                lucro_dt = 0.0
+                lucro_dt    = 0.0
                 qtde_pareada = 0
                 for _ in range(qtde):
                     if fila:
                         pm_dt = fila.popleft()
-                        lucro_dt += preco_liq - pm_dt
+                        lucro_dt    += preco_liq - pm_dt
                         qtde_pareada += 1
+                    else:
+                        log.warning("DT sem compra pareada: %s %s nota=%s", data_str, ativo, nr_nota)
+
                 if qtde_pareada > 0:
-                    retorno_pct_dt = (lucro_dt / (sum([preco_liq]*qtde_pareada) or 1)) * 100
+                    custo_dt = sum([preco_liq - lucro_dt / qtde_pareada] * qtde_pareada)
+                    retorno_pct_dt = (lucro_dt / custo_dt * 100) if custo_dt > 0 else 0.0
                     historico.append({
-                        'data': row['data'],
-                        'mes_ano': row['data'].strftime('%Y-%m'),
-                        'ano': row['data'].year,
-                        'ativo': ativo,
-                        'qtde_vendida': qtde_pareada,
-                        'preco_venda': preco_liq,
+                        'data':             row['data'],
+                        'mes_ano':          row['data'].strftime('%Y-%m'),
+                        'ano':              row['data'].year,
+                        'ativo':            ativo,
+                        'qtde_vendida':     qtde_pareada,
+                        'preco_venda':      preco_liq,
                         'preco_venda_bruto': preco_bruto,
                         'preco_medio_compra': preco_liq - (lucro_dt / qtde_pareada),
-                        'resultado': lucro_dt,
-                        'retorno_pct': retorno_pct_dt,
-                        'custo_base': 0.0,
-                        'daytrade': True,
+                        'resultado':        lucro_dt,
+                        'retorno_pct':      retorno_pct_dt,
+                        'custo_base':       custo_dt,
+                        'daytrade':         True,
+                        'nr_nota':          nr_nota,
                     })
             else:
                 pos = carteira[ativo]
                 if pos['qtde'] > 0:
                     qtde_valida = min(pos['qtde'], qtde)
-                    pm = pos['preco_medio']
-                    lucro = (preco_liq - pm) * qtde_valida
+                    pm          = pos['preco_medio']
+                    lucro       = (preco_liq - pm) * qtde_valida
                     retorno_pct = ((preco_liq / pm) - 1) * 100 if pm > 0 else 0.0
+                    custo_base  = pm * qtde_valida
                     historico.append({
-                        'data': row['data'],
-                        'mes_ano': row['data'].strftime('%Y-%m'),
-                        'ano': row['data'].year,
-                        'ativo': ativo,
-                        'qtde_vendida': qtde_valida,
-                        'preco_venda': preco_liq,
+                        'data':             row['data'],
+                        'mes_ano':          row['data'].strftime('%Y-%m'),
+                        'ano':              row['data'].year,
+                        'ativo':            ativo,
+                        'qtde_vendida':     qtde_valida,
+                        'preco_venda':      preco_liq,
                         'preco_venda_bruto': preco_bruto,
                         'preco_medio_compra': pm,
-                        'resultado': lucro,
-                        'retorno_pct': retorno_pct,
-                        'custo_base': pm * qtde_valida,
-                        'daytrade': False,
+                        'resultado':        lucro,
+                        'retorno_pct':      retorno_pct,
+                        'custo_base':       custo_base,
+                        'daytrade':         False,
+                        'nr_nota':          nr_nota,
                     })
-                    pos['qtde'] -= qtde_valida
+                    pos['qtde']       -= qtde_valida
                     pos['custo_total'] = pos['preco_medio'] * pos['qtde']
+                else:
+                    log.warning("Venda de %s sem posição em carteira na data %s.", ativo, data_str)
 
     # Monta carteira atual
     carteira_atual = [
         {
-            'Ativo': ativo,
-            'Quantidade': d['qtde'],
-            'Preço Médio': d['preco_medio'],
+            'Ativo':           ativo,
+            'Quantidade':      d['qtde'],
+            'Preço Médio':     d['preco_medio'],
             'Valor Investido': d['qtde'] * d['preco_medio'],
         }
         for ativo, d in carteira.items() if d['qtde'] > 0
     ]
-    df_carteira = pd.DataFrame(carteira_atual)
+    df_carteira  = pd.DataFrame(carteira_atual)
     df_historico = pd.DataFrame(historico)
 
     df_mensal = pd.DataFrame()
@@ -593,7 +661,8 @@ def calculate_performance(df):
             .agg(
                 resultado=('resultado', 'sum'),
                 trades=('resultado', 'count'),
-                win_rate=('resultado', lambda x: (x > 0).mean() * 100)
+                win_rate=('resultado', lambda x: (x > 0).mean() * 100),
+                trades_dt=('daytrade', 'sum'),
             )
             .reset_index()
         )
@@ -604,74 +673,6 @@ def calculate_performance(df):
 # ─────────────────────────────────────────────
 # MÉTRICAS AVANÇADAS
 # ─────────────────────────────────────────────
-def calc_advanced_metrics(df_historico: pd.DataFrame) -> dict:
-    """Calcula métricas quantitativas de performance de trading."""
-    if df_historico.empty:
-        return {}
-
-    resultados = df_historico['resultado']
-    retornos = df_historico['retorno_pct']
-
-    lucros = resultados[resultados > 0]
-    perdas = resultados[resultados < 0]
-
-    # Payoff Ratio (média de ganhos / média de perdas absolutas)
-    payoff = (lucros.mean() / abs(perdas.mean())) if (not lucros.empty and not perdas.empty) else 0.0
-
-    # Fator de Lucro: soma ganhos / soma perdas absolutas
-    fator_lucro = (lucros.sum() / abs(perdas.sum())) if not perdas.empty else float('inf')
-
-    # Sequências
-    max_seq_win = max_streak(resultados > 0)
-    max_seq_loss = max_streak(resultados <= 0)
-
-    # Curva de capital acumulada (para drawdown)
-    curva = resultados.cumsum()
-    peak = curva.cummax()
-    drawdown = curva - peak
-    max_dd = drawdown.min()
-    max_dd_pct = (drawdown / peak.replace(0, np.nan)).min() * 100 if peak.max() > 0 else 0.0
-
-    # Sharpe simplificado (retorno médio / desvio padrão dos retornos)
-    sharpe = (retornos.mean() / retornos.std()) if retornos.std() > 0 else 0.0
-
-    # Expectativa matemática (em R$)
-    win_rate = (resultados > 0).mean()
-    loss_rate = 1 - win_rate
-    avg_win = lucros.mean() if not lucros.empty else 0.0
-    avg_loss = perdas.mean() if not perdas.empty else 0.0
-    expectativa = (win_rate * avg_win) + (loss_rate * avg_loss)
-
-    # Calmar Ratio = retorno anualizado / max drawdown absoluto
-    calmar = (resultados.sum() / abs(max_dd)) if max_dd != 0 else 0.0
-
-    return {
-        'win_rate': win_rate * 100,
-        'payoff_ratio': payoff,
-        'fator_lucro': fator_lucro,
-        'expectativa': expectativa,
-        'sharpe': sharpe,
-        'calmar': calmar,
-        'max_drawdown': max_dd,
-        'max_drawdown_pct': max_dd_pct,
-        'max_seq_win': max_seq_win,
-        'max_seq_loss': max_seq_loss,
-        'total_trades': len(resultados),
-        'trades_lucro': len(lucros),
-        'trades_perda': len(perdas),
-        'maior_lucro': lucros.max() if not lucros.empty else 0.0,
-        'maior_perda': perdas.min() if not perdas.empty else 0.0,
-        'media_lucro': avg_win,
-        'media_perda': avg_loss,
-        'lucro_bruto_total': resultados.sum(),
-        'retorno_medio_pct': retornos.mean(),
-        'retorno_melhor_pct': retornos.max(),
-        'retorno_pior_pct': retornos.min(),
-        'curva_capital': curva,
-        'drawdown_series': drawdown,
-    }
-
-
 def max_streak(bool_series: pd.Series) -> int:
     """Maior sequência consecutiva de True."""
     max_s = cur = 0
@@ -684,17 +685,170 @@ def max_streak(bool_series: pd.Series) -> int:
     return max_s
 
 
+def calc_advanced_metrics(df_historico: pd.DataFrame) -> dict:
+    """Calcula métricas quantitativas de performance de trading."""
+    if df_historico.empty:
+        return {}
+
+    resultados = df_historico['resultado']
+    retornos   = df_historico['retorno_pct']
+
+    lucros = resultados[resultados > 0]
+    perdas = resultados[resultados < 0]
+
+    # Payoff Ratio
+    payoff = (lucros.mean() / abs(perdas.mean())) if (not lucros.empty and not perdas.empty) else None
+
+    # Fator de Lucro
+    fator_lucro = (lucros.sum() / abs(perdas.sum())) if not perdas.empty else None
+
+    # Sequências
+    max_seq_win  = max_streak(resultados > 0)
+    max_seq_loss = max_streak(resultados <= 0)
+
+    # Curva de capital
+    curva   = resultados.cumsum()
+    peak    = curva.cummax()
+    drawdown = curva - peak
+    max_dd  = drawdown.min()
+    max_dd_pct = (drawdown / peak.replace(0, np.nan)).min() * 100 if peak.max() > 0 else None
+
+    # Sharpe simplificado
+    sharpe = (retornos.mean() / retornos.std()) if retornos.std() > 0 else None
+
+    # Sortino (penaliza apenas volatilidade negativa)
+    ret_negativos = retornos[retornos < 0]
+    downside_std  = ret_negativos.std() if len(ret_negativos) > 1 else None
+    sortino = (retornos.mean() / downside_std) if downside_std and downside_std > 0 else None
+
+    # Expectativa matemática
+    win_rate  = (resultados > 0).mean()
+    loss_rate = 1 - win_rate
+    avg_win   = lucros.mean() if not lucros.empty else 0.0
+    avg_loss  = perdas.mean() if not perdas.empty else 0.0
+    expectativa = (win_rate * avg_win) + (loss_rate * avg_loss)
+
+    # Calmar Ratio
+    calmar = (resultados.sum() / abs(max_dd)) if max_dd != 0 else None
+
+    # Recovery Factor = lucro total / |max drawdown|
+    recovery_factor = (resultados.sum() / abs(max_dd)) if max_dd != 0 else None
+
+    # Volatilidade anualizada dos retornos %
+    vol_diaria = retornos.std()
+    vol_anual  = vol_diaria * np.sqrt(252) if vol_diaria > 0 else 0.0
+
+    # Média dias entre trades (se data disponível)
+    if 'data' in df_historico.columns and len(df_historico) > 1:
+        datas = pd.to_datetime(df_historico['data'])
+        media_dias_entre_trades = datas.diff().dt.days.mean()
+    else:
+        media_dias_entre_trades = None
+
+    # Análise DayTrade vs Swing
+    if 'daytrade' in df_historico.columns:
+        df_dt   = df_historico[df_historico['daytrade'] == True]
+        df_sw   = df_historico[df_historico['daytrade'] == False]
+        resultado_dt = df_dt['resultado'].sum() if not df_dt.empty else 0.0
+        resultado_sw = df_sw['resultado'].sum() if not df_sw.empty else 0.0
+        wr_dt        = (df_dt['resultado'] > 0).mean() * 100 if not df_dt.empty else None
+        wr_sw        = (df_sw['resultado'] > 0).mean() * 100 if not df_sw.empty else None
+    else:
+        resultado_dt = resultado_sw = 0.0
+        wr_dt = wr_sw = None
+
+    return {
+        'win_rate':            win_rate * 100,
+        'payoff_ratio':        payoff,
+        'fator_lucro':         fator_lucro,
+        'expectativa':         expectativa,
+        'sharpe':              sharpe,
+        'sortino':             sortino,
+        'calmar':              calmar,
+        'recovery_factor':     recovery_factor,
+        'vol_anual_pct':       vol_anual,
+        'max_drawdown':        max_dd,
+        'max_drawdown_pct':    max_dd_pct,
+        'max_seq_win':         max_seq_win,
+        'max_seq_loss':        max_seq_loss,
+        'total_trades':        len(resultados),
+        'trades_lucro':        len(lucros),
+        'trades_perda':        len(perdas),
+        'maior_lucro':         lucros.max() if not lucros.empty else 0.0,
+        'maior_perda':         perdas.min() if not perdas.empty else 0.0,
+        'media_lucro':         avg_win,
+        'media_perda':         avg_loss,
+        'lucro_bruto_total':   resultados.sum(),
+        'retorno_medio_pct':   retornos.mean(),
+        'retorno_melhor_pct':  retornos.max(),
+        'retorno_pior_pct':    retornos.min(),
+        'curva_capital':       curva,
+        'drawdown_series':     drawdown,
+        'media_dias_entre_trades': media_dias_entre_trades,
+        'resultado_daytrade':  resultado_dt,
+        'resultado_swing':     resultado_sw,
+        'win_rate_daytrade':   wr_dt,
+        'win_rate_swing':      wr_sw,
+        'n_daytrades':         len(df_dt) if 'daytrade' in df_historico.columns else 0,
+        'n_swings':            len(df_sw) if 'daytrade' in df_historico.columns else 0,
+    }
+
+
+def calc_qualidade_dados(df: pd.DataFrame) -> list[dict]:
+    """
+    Verifica qualidade dos dados carregados.
+    Retorna lista de alertas: {'nivel': 'aviso'|'erro', 'mensagem': str}
+    """
+    alertas = []
+    if df.empty:
+        return alertas
+
+    # Quantidade zero ou negativa
+    qtde_invalida = (df['quantidade'] <= 0).sum()
+    if qtde_invalida:
+        alertas.append({'nivel': 'erro', 'mensagem': f"{qtde_invalida} operação(ões) com quantidade ≤ 0"})
+
+    # Preços zero
+    preco_zero = (df['preco'] <= 0).sum()
+    if preco_zero:
+        alertas.append({'nivel': 'erro', 'mensagem': f"{preco_zero} operação(ões) com preço ≤ 0"})
+
+    # Datas inválidas
+    datas = pd.to_datetime(df['data'], format='%d/%m/%Y', errors='coerce')
+    datas_invalidas = datas.isna().sum()
+    if datas_invalidas:
+        alertas.append({'nivel': 'erro', 'mensagem': f"{datas_invalidas} data(s) em formato inválido"})
+
+    # Ativos sem ticker reconhecido (não terminam em número — heurística simples)
+    ativos_suspeitos = df['ativo'].dropna().unique()
+    nao_padrao = [a for a in ativos_suspeitos if not re.search(r'\d{1,2}$', a) and len(a) > 8]
+    if nao_padrao:
+        alertas.append({
+            'nivel': 'aviso',
+            'mensagem': f"Ativos com ticker não-padrão B3: {', '.join(nao_padrao[:5])}"
+        })
+
+    # Taxa rateada zerada em todas operações (PDF sem resumo financeiro)
+    if 'taxa_rateada' in df.columns and df['taxa_rateada'].sum() == 0:
+        alertas.append({'nivel': 'aviso', 'mensagem': "Nenhuma taxa rateada detectada — PDFs podem estar sem resumo financeiro"})
+
+    # Operações duplicadas aproximadas (mesma data, ativo, qtde, preço, mas nr_nota diferente)
+    cols_dup = ['data', 'cv', 'ativo', 'quantidade', 'preco']
+    n_dup = df.duplicated(subset=cols_dup).sum()
+    if n_dup:
+        alertas.append({'nivel': 'aviso', 'mensagem': f"{n_dup} possível(is) operação(ões) duplicada(s) (mesma data/ativo/qtde/preço)"})
+
+    return alertas
+
+
 # ─────────────────────────────────────────────
 # HELPERS DE FORMATAÇÃO
 # ─────────────────────────────────────────────
 def fmt_brl(value: float) -> str:
-    """Formata como BRL para tabelas/texto (ex: R$ 1.317,25)."""
     return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
 
 def fmt_kpi(value: float) -> str:
-    """Formata como BRL para cards KPI — sem separador de milhar para evitar truncamento."""
-    # Usa vírgula decimal sem ponto de milhar: R$ 33547,82
     s = f"{abs(value):.2f}".replace('.', ',')
     prefix = "R$ " if value >= 0 else "- R$ "
     return f"{prefix}{s}"
@@ -704,10 +858,16 @@ def fmt_pct(value: float) -> str:
     return f"{value:+.2f}%"
 
 
+def fmt_metric(value, fmt: str = ".2f", suffix: str = "", prefix: str = "", na: str = "N/A") -> str:
+    """Formata métrica com suporte a None → N/A."""
+    if value is None or (isinstance(value, float) and not np.isfinite(value)):
+        return na
+    return f"{prefix}{value:{fmt}}{suffix}"
+
+
 def color_result(val):
-    """Aplica cor em células de resultado."""
     try:
-        v = float(str(val).replace('R$','').replace('.','').replace(',','.').strip())
+        v = float(str(val).replace('R$', '').replace('.', '').replace(',', '.').strip())
         color = '#10b981' if v > 0 else ('#ef4444' if v < 0 else '#94a3b8')
         return f'color: {color}; font-family: JetBrains Mono, monospace; font-weight: 600'
     except Exception:
@@ -715,7 +875,6 @@ def color_result(val):
 
 
 def brl(v) -> str:
-    """Formata BRL estilo BR para células de tabela (2 casas)."""
     try:
         return f"R$ {float(v):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     except (TypeError, ValueError):
@@ -723,13 +882,10 @@ def brl(v) -> str:
 
 
 def brl4(v) -> str:
-    """Formata BRL estilo BR para células de tabela (4 casas — preços unitários)."""
     try:
         return f"R$ {float(v):,.4f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     except (TypeError, ValueError):
         return str(v)
-
-
 
 
 # ─────────────────────────────────────────────
@@ -740,22 +896,14 @@ ALTAIR_THEME = {
         "background": "transparent",
         "view": {"stroke": "transparent"},
         "axis": {
-            "domainColor": "#2a3548",
-            "gridColor": "#1e2535",
-            "labelColor": "#64748b",
-            "titleColor": "#94a3b8",
-            "labelFont": "Inter",
-            "titleFont": "Inter",
+            "domainColor": "#2a3548", "gridColor": "#1e2535",
+            "labelColor": "#64748b", "titleColor": "#94a3b8",
+            "labelFont": "Inter", "titleFont": "Inter",
         },
-        "legend": {
-            "labelColor": "#94a3b8",
-            "titleColor": "#64748b",
-            "labelFont": "Inter",
-        },
+        "legend": {"labelColor": "#94a3b8", "titleColor": "#64748b", "labelFont": "Inter"},
         "title": {"color": "#cbd5e1", "font": "Inter"},
     }
 }
-
 alt.themes.register("dark_finance", lambda: ALTAIR_THEME)
 alt.themes.enable("dark_finance")
 
@@ -776,19 +924,20 @@ with st.sidebar:
             "📈 Performance Mensal",
             "🔍 Análise Individual",
             "🧮 Métricas Avançadas",
+            "⚡ Day Trade vs Swing",
             "📋 Histórico de Operações",
+            "🔬 Qualidade dos Dados",
         ],
         label_visibility="collapsed",
     )
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # Resumo rápido na sidebar
     df_sidebar = load_data(conn)
     if not df_sidebar.empty:
         df_cart_sb, df_hist_sb, _ = calculate_performance(df_sidebar)
         n_ativos = len(df_cart_sb) if not df_cart_sb.empty else 0
-        n_ops = len(df_sidebar)
+        n_ops    = len(df_sidebar)
         st.markdown(f"**{n_ops}** operações · **{n_ativos}** ativos")
 
         if not df_hist_sb.empty:
@@ -818,14 +967,16 @@ if menu == "🏠 Visão Geral":
         df_carteira, df_historico, df_mensal = calculate_performance(df)
         metrics = calc_advanced_metrics(df_historico)
 
-        total_investido = df_carteira['Valor Investido'].sum() if not df_carteira.empty else 0.0
+        total_investido  = df_carteira['Valor Investido'].sum() if not df_carteira.empty else 0.0
         ativos_diferentes = len(df_carteira) if not df_carteira.empty else 0
-        lucro_total = metrics.get('lucro_bruto_total', 0.0)
-        win_rate = metrics.get('win_rate', 0.0)
-        payoff = metrics.get('payoff_ratio', 0.0)
-        expectativa = metrics.get('expectativa', 0.0)
+        lucro_total      = metrics.get('lucro_bruto_total', 0.0)
+        win_rate         = metrics.get('win_rate', 0.0)
+        payoff           = metrics.get('payoff_ratio')
+        expectativa      = metrics.get('expectativa', 0.0)
+        sharpe           = metrics.get('sharpe')
+        sortino          = metrics.get('sortino')
 
-        # ── KPIs: 2 linhas de 3 para tablet ──
+        # ── KPIs: 2 linhas ──
         c1, c2, c3 = st.columns(3)
         c1.metric("💰 Valor em Carteira", fmt_kpi(total_investido))
         c2.metric(
@@ -834,33 +985,37 @@ if menu == "🏠 Visão Geral":
             delta=f"{(lucro_total / total_investido * 100):+.1f}%" if total_investido > 0 else None
         )
         c3.metric("🎯 Ativos em Carteira", str(ativos_diferentes))
+
         c4, c5, c6 = st.columns(3)
         c4.metric("✅ Win Rate", f"{win_rate:.1f}%")
-        c5.metric("⚖️ Payoff Ratio", f"{payoff:.2f}×")
+        c5.metric("⚖️ Payoff Ratio", fmt_metric(payoff, ".2f", "×"))
         c6.metric("🎲 Expectativa/Trade", fmt_kpi(expectativa))
+
+        c7, c8, c9 = st.columns(3)
+        c7.metric("📐 Sharpe Ratio", fmt_metric(sharpe, ".3f"),
+                  help="Retorno médio / desvio padrão dos retornos. >0 é positivo.")
+        c8.metric("📐 Sortino Ratio", fmt_metric(sortino, ".3f"),
+                  help="Como Sharpe, mas penaliza somente a volatilidade negativa.")
+        c9.metric("📉 Max Drawdown", fmt_metric(metrics.get('max_drawdown'), ".2f", "", "R$ "))
 
         st.divider()
 
-        # ── Gráfico de Pizza / Rosca da Carteira ──
+        # ── Gráfico de Rosca ──
         st.subheader("Alocação da Carteira")
         if not df_carteira.empty:
             df_chart = df_carteira.sort_values('Valor Investido', ascending=False).copy()
-            if len(df_chart) > 12:
-                top = df_chart.head(12)
+            if len(df_chart) > MAX_ATIVOS_PIZZA:
+                top    = df_chart.head(MAX_ATIVOS_PIZZA)
                 outros = pd.DataFrame([{
-                    'Ativo': 'OUTROS', 'Quantidade': 0,
-                    'Preço Médio': 0,
-                    'Valor Investido': df_chart.iloc[12:]['Valor Investido'].sum()
+                    'Ativo': 'OUTROS', 'Quantidade': 0, 'Preço Médio': 0,
+                    'Valor Investido': df_chart.iloc[MAX_ATIVOS_PIZZA:]['Valor Investido'].sum()
                 }])
                 df_chart = pd.concat([top, outros], ignore_index=True)
 
             pie = alt.Chart(df_chart).mark_arc(innerRadius=70, outerRadius=150).encode(
                 theta=alt.Theta('Valor Investido:Q'),
-                color=alt.Color(
-                    'Ativo:N',
-                    scale=alt.Scale(scheme='tableau20'),
-                    legend=alt.Legend(orient='bottom', labelLimit=160, columns=3)
-                ),
+                color=alt.Color('Ativo:N', scale=alt.Scale(scheme='tableau20'),
+                                legend=alt.Legend(orient='bottom', labelLimit=160, columns=3)),
                 tooltip=[
                     alt.Tooltip('Ativo:N', title='Ativo'),
                     alt.Tooltip('Valor Investido:Q', title='Valor (R$)', format=',.2f'),
@@ -870,14 +1025,12 @@ if menu == "🏠 Visão Geral":
         else:
             st.info("Carteira vazia.")
 
-        # ── Gráfico de Resultado Mensal ──
+        # ── Resultado Mensal ──
         st.subheader("Resultado por Mês")
         if not df_mensal.empty:
-            df_mensal_chart = df_mensal.copy()
-            df_mensal_chart['cor'] = df_mensal_chart['resultado'].apply(
-                lambda x: '#10b981' if x >= 0 else '#ef4444'
-            )
-            bars = alt.Chart(df_mensal_chart).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+            df_mc = df_mensal.copy()
+            df_mc['cor'] = df_mc['resultado'].apply(lambda x: '#10b981' if x >= 0 else '#ef4444')
+            bars = alt.Chart(df_mc).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
                 x=alt.X('mes_ano:N', title='Mês', axis=alt.Axis(labelAngle=-45)),
                 y=alt.Y('resultado:Q', title='Resultado (R$)'),
                 color=alt.Color('cor:N', scale=None, legend=None),
@@ -897,13 +1050,8 @@ if menu == "🏠 Visão Geral":
             st.divider()
             st.subheader("Curva de Capital Acumulada")
             curva = metrics['curva_capital'].reset_index(drop=True)
-            df_curva = pd.DataFrame({
-                'trade_n': range(1, len(curva) + 1),
-                'capital': curva.values
-            })
-            line = alt.Chart(df_curva).mark_line(
-                color='#3b82f6', strokeWidth=2
-            ).encode(
+            df_curva = pd.DataFrame({'trade_n': range(1, len(curva) + 1), 'capital': curva.values})
+            line  = alt.Chart(df_curva).mark_line(color='#3b82f6', strokeWidth=2).encode(
                 x=alt.X('trade_n:Q', title='Nº do Trade'),
                 y=alt.Y('capital:Q', title='Resultado Acumulado (R$)'),
                 tooltip=[
@@ -911,16 +1059,38 @@ if menu == "🏠 Visão Geral":
                     alt.Tooltip('capital:Q', title='Acumulado (R$)', format=',.2f'),
                 ]
             )
-            area = alt.Chart(df_curva).mark_area(
-                color='#3b82f6', opacity=0.15
-            ).encode(
-                x='trade_n:Q',
-                y='capital:Q'
+            area  = alt.Chart(df_curva).mark_area(color='#3b82f6', opacity=0.15).encode(
+                x='trade_n:Q', y='capital:Q'
             )
-            zero = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(
+            zero  = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(
                 color='#2a3548', strokeDash=[4, 4]
             ).encode(y='y:Q')
             st.altair_chart((area + line + zero).properties(height=240), use_container_width=True)
+
+        # ── Heatmap Mensal ──
+        if not df_historico.empty:
+            st.divider()
+            st.subheader("Heatmap de Performance Mensal")
+            df_hm = df_historico.copy()
+            df_hm['mes'] = df_hm['data'].dt.month
+            df_hm['ano'] = df_hm['data'].dt.year
+            df_hm_pivot = df_hm.groupby(['ano', 'mes'])['resultado'].sum().reset_index()
+            df_hm_pivot['mes_label'] = df_hm_pivot['mes'].apply(
+                lambda m: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][m-1]
+            )
+            heatmap = alt.Chart(df_hm_pivot).mark_rect(cornerRadius=4).encode(
+                x=alt.X('mes_label:O', sort=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],
+                        title='Mês'),
+                y=alt.Y('ano:O', title='Ano'),
+                color=alt.Color('resultado:Q', title='R$',
+                                scale=alt.Scale(scheme='redyellowgreen', domainMid=0)),
+                tooltip=[
+                    alt.Tooltip('ano:O', title='Ano'),
+                    alt.Tooltip('mes_label:O', title='Mês'),
+                    alt.Tooltip('resultado:Q', title='Resultado (R$)', format=',.2f'),
+                ]
+            ).properties(height=max(80, df_hm_pivot['ano'].nunique() * 50))
+            st.altair_chart(heatmap, use_container_width=True)
 
 
 # ─────────────────────────────────────────────
@@ -930,21 +1100,20 @@ elif menu == "📥 Importar Notas":
     st.title("Importar Notas de Corretagem")
     st.markdown("Faça upload dos PDFs ou adicione-os diretamente à pasta `notas_pdf/` no repositório Git.")
 
-    # ── Botão para re-escanear a pasta (útil após push via Git) ──────
     col_scan, col_info = st.columns([1, 3])
     with col_scan:
         if st.button("🔄 Verificar Novos PDFs na Pasta", use_container_width=True):
             novas_git, arqs_git = processar_notas_iniciais(conn)
             if arqs_git:
-                st.success(f"**{novas_git}** operação(ões) importada(s) de {len(arqs_git)} arquivo(s) novo(s):")
+                st.success(f"**{novas_git}** operação(ões) importada(s) de {len(arqs_git)} arquivo(s):")
                 for a in arqs_git:
                     st.write(f"  • {a}")
             else:
                 st.info("Nenhum PDF novo encontrado na pasta `notas_pdf/`.")
     with col_info:
         st.caption(
-            "Use este botão após fazer `git push` com novos PDFs na pasta `notas_pdf/`. "
-            "O sistema detecta automaticamente os arquivos ainda não processados."
+            "Use após `git push` com novos PDFs em `notas_pdf/`. "
+            "Arquivos já processados são ignorados automaticamente."
         )
     st.divider()
 
@@ -962,43 +1131,54 @@ elif menu == "📥 Importar Notas":
             c = conn.cursor()
             total_novas = 0
             resultados_upload = []
+            ativos_nao_mapeados_geral: set[str] = set()
 
             progress = st.progress(0)
             for i, file in enumerate(uploaded_files):
-                nome_arquivo = file.name
-                file_path = os.path.join('notas_pdf', nome_arquivo)
+                # Sanitiza nome de arquivo contra path traversal
+                nome_arquivo = os.path.basename(file.name)
+                file_path    = os.path.join('notas_pdf', nome_arquivo)
 
-                with open(file_path, "wb") as f:
-                    f.write(file.getbuffer())
+                try:
+                    with open(file_path, "wb") as f:
+                        f.write(file.getbuffer())
+                except OSError as exc:
+                    st.error(f"Erro ao salvar {nome_arquivo}: {exc}")
+                    resultados_upload.append((nome_arquivo, 0, "-", "❌ Erro de escrita"))
+                    progress.progress((i + 1) / len(uploaded_files))
+                    continue
 
                 c.execute('SELECT COUNT(*) FROM arquivos_processados WHERE nome_arquivo=?', (nome_arquivo,))
                 ja_processado = c.fetchone()[0] > 0
 
                 if not ja_processado:
-                    trades = parse_pdf(file_path)
-                    novas = save_to_db(trades, conn)
-                    total_novas += novas
-                    total_tx = sum(t.get('taxa_rateada', 0) for t in trades)
-                    c.execute('INSERT OR IGNORE INTO arquivos_processados (nome_arquivo) VALUES (?)', (nome_arquivo,))
-                    conn.commit()
-                    resultados_upload.append((nome_arquivo, novas, f"R$ {total_tx:.2f}", "✅ Importado"))
+                    try:
+                        trades   = parse_pdf(file_path)
+                        novas    = save_to_db(trades, conn)
+                        total_novas += novas
+                        total_tx = sum(t.get('taxa_rateada', 0) for t in trades)
+                        c.execute('INSERT OR IGNORE INTO arquivos_processados (nome_arquivo) VALUES (?)', (nome_arquivo,))
+                        conn.commit()
+                        resultados_upload.append((nome_arquivo, novas, f"R$ {total_tx:.2f}", "✅ Importado"))
+                    except Exception as exc:
+                        log.error("Falha ao processar '%s': %s", nome_arquivo, exc, exc_info=True)
+                        resultados_upload.append((nome_arquivo, 0, "-", f"❌ {exc}"))
                 else:
                     resultados_upload.append((nome_arquivo, 0, "-", "⏭️ Já processado"))
 
                 progress.progress((i + 1) / len(uploaded_files))
 
             st.success(f"Concluído! **{total_novas}** novas operações importadas.")
-
             df_res = pd.DataFrame(resultados_upload, columns=['Arquivo', 'Operações', 'Taxas capturadas', 'Status'])
             st.dataframe(df_res, use_container_width=True, hide_index=True)
         else:
             st.warning("Selecione pelo menos um arquivo PDF.")
 
-    # Arquivos já processados
     st.divider()
     st.subheader("Notas já processadas")
     df_arqs = pd.read_sql_query(
-        "SELECT nome_arquivo as 'Arquivo', data_processamento as 'Processado em' FROM arquivos_processados ORDER BY data_processamento DESC",
+        "SELECT nome_arquivo AS 'Arquivo', data_processamento AS 'Processado em' "
+        "FROM arquivos_processados ORDER BY data_processamento DESC",
         conn
     )
     if not df_arqs.empty:
@@ -1018,31 +1198,30 @@ elif menu == "💼 Carteira Atual":
 
     if not df_carteira.empty:
         total_investido = df_carteira['Valor Investido'].sum()
+        maior_pos_ativo = df_carteira.loc[df_carteira['Valor Investido'].idxmax(), 'Ativo']
+        maior_pos_pct   = df_carteira['Valor Investido'].max() / total_investido * 100
 
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         c1.metric("Total Alocado", fmt_kpi(total_investido))
         c2.metric("Ativos Diferentes", str(len(df_carteira)))
-        st.metric("Maior Posição", df_carteira.loc[df_carteira['Valor Investido'].idxmax(), 'Ativo'])
+        c3.metric("Maior Posição", f"{maior_pos_ativo} ({maior_pos_pct:.1f}%)")
 
         st.divider()
 
-        # Adiciona % do portfólio
         df_view = df_carteira.copy().sort_values('Valor Investido', ascending=False)
         df_view['% Carteira'] = (df_view['Valor Investido'] / total_investido * 100).round(2)
+        # Concentração HHI (Herfindahl-Hirschman Index) — 0-10000, >2500 = alta concentração
+        hhi = ((df_view['% Carteira'] ** 2).sum())
+        st.caption(f"Índice de Concentração HHI: **{hhi:.0f}** {'🔴 Alta' if hhi > 2500 else '🟡 Moderada' if hhi > 1000 else '🟢 Diversificada'}")
 
         st.dataframe(
             df_view.style
-                .format({
-                    'Preço Médio': brl4,
-                    'Valor Investido': brl,
-                    '% Carteira': '{:.2f}%'
-                })
-                ,
+                .format({'Preço Médio': brl4, 'Valor Investido': brl, '% Carteira': '{:.2f}%'})
+                .map(lambda v: 'color: #f59e0b' if isinstance(v, (int, float)) and v > 20 else '', subset=['% Carteira']),
             use_container_width=True,
             hide_index=True
         )
 
-        # Gráfico de barras horizontais
         st.subheader("Concentração por Ativo")
         bar_h = alt.Chart(df_view.head(20)).mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4).encode(
             y=alt.Y('Ativo:N', sort='-x', title=None),
@@ -1057,6 +1236,13 @@ elif menu == "💼 Carteira Atual":
             ]
         ).properties(height=max(200, len(df_view.head(20)) * 28))
         st.altair_chart(bar_h, use_container_width=True)
+
+        # Linha de aviso de concentração
+        if maior_pos_pct > 25:
+            st.markdown(
+                f'<div class="warn-box">⚠️ <b>{maior_pos_ativo}</b> representa <b>{maior_pos_pct:.1f}%</b> da carteira — concentração elevada.</div>',
+                unsafe_allow_html=True
+            )
     else:
         st.info("Sua carteira está vazia ou nenhum dado foi carregado.")
 
@@ -1072,24 +1258,24 @@ elif menu == "📈 Performance Mensal":
     _, df_historico, df_mensal = calculate_performance(df)
 
     if not df_mensal.empty:
-        # ── KPIs mensais ──
         meses_positivos = (df_mensal['resultado'] > 0).sum()
         meses_negativos = (df_mensal['resultado'] <= 0).sum()
-        melhor_mes = df_mensal.loc[df_mensal['resultado'].idxmax(), 'mes_ano']
-        melhor_valor = df_mensal['resultado'].max()
-        pior_mes = df_mensal.loc[df_mensal['resultado'].idxmin(), 'mes_ano']
-        pior_valor = df_mensal['resultado'].min()
+        melhor_mes      = df_mensal.loc[df_mensal['resultado'].idxmax(), 'mes_ano']
+        melhor_valor    = df_mensal['resultado'].max()
+        pior_mes        = df_mensal.loc[df_mensal['resultado'].idxmin(), 'mes_ano']
+        pior_valor      = df_mensal['resultado'].min()
+        consistencia    = meses_positivos / len(df_mensal) * 100
 
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         c1.metric("Meses Positivos", f"{meses_positivos}")
         c2.metric("Meses Negativos", f"{meses_negativos}")
-        c3, c4 = st.columns(2)
-        c3.metric("Melhor Mês", melhor_mes, delta=fmt_kpi(melhor_valor))
-        c4.metric("Pior Mês", pior_mes, delta=fmt_kpi(pior_valor))
+        c3.metric("Consistência Mensal", f"{consistencia:.1f}%", help="% de meses com resultado positivo")
+        c4, c5 = st.columns(2)
+        c4.metric("Melhor Mês", melhor_mes, delta=fmt_kpi(melhor_valor))
+        c5.metric("Pior Mês", pior_mes, delta=fmt_kpi(pior_valor))
 
         st.divider()
 
-        # ── Gráfico de barras mensais ──
         df_chart = df_mensal.copy()
         df_chart['cor'] = df_chart['resultado'].apply(lambda x: '#10b981' if x >= 0 else '#ef4444')
 
@@ -1102,13 +1288,26 @@ elif menu == "📈 Performance Mensal":
                 alt.Tooltip('resultado:Q', title='Resultado (R$)', format=',.2f'),
                 alt.Tooltip('trades:Q', title='Trades'),
                 alt.Tooltip('win_rate:Q', title='Win Rate (%)', format='.1f'),
+                alt.Tooltip('trades_dt:Q', title='DayTrades'),
             ]
         ).properties(height=280)
         st.altair_chart(bars, use_container_width=True)
 
-        # ── Tabela mensal ──
+        # Resultado acumulado ao longo dos meses
+        df_chart['acumulado'] = df_chart['resultado'].cumsum()
+        line_acc = alt.Chart(df_chart).mark_line(color='#3b82f6', strokeWidth=2, point=True).encode(
+            x=alt.X('mes_ano:N', sort=None, title='Mês/Ano', axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y('acumulado:Q', title='Acumulado (R$)'),
+            tooltip=[
+                alt.Tooltip('mes_ano:N', title='Mês'),
+                alt.Tooltip('acumulado:Q', title='Acumulado (R$)', format=',.2f'),
+            ]
+        ).properties(height=200, title='Resultado Acumulado por Mês')
+        st.altair_chart(line_acc, use_container_width=True)
+
+        # Tabela mensal
         df_mensal_display = df_mensal.copy()
-        df_mensal_display.columns = ['Mês/Ano', 'Resultado (R$)', 'Trades', 'Win Rate (%)']
+        df_mensal_display.columns = ['Mês/Ano', 'Resultado (R$)', 'Trades', 'Win Rate (%)', 'Day Trades']
         st.dataframe(
             df_mensal_display.style
                 .map(color_result, subset=['Resultado (R$)'])
@@ -1118,15 +1317,13 @@ elif menu == "📈 Performance Mensal":
         )
 
         st.divider()
-
-        # ── Análise de trades ──
         st.subheader("Detalhamento dos Trades")
         lucros = df_historico[df_historico['resultado'] > 0]['resultado']
         perdas = df_historico[df_historico['resultado'] < 0]['resultado']
 
         c1, c2 = st.columns(2)
         c1.metric("Maior Ganho", fmt_kpi(lucros.max() if not lucros.empty else 0))
-        c2.metric("Maior Perda", fmt_kpi(perdas.min() if not perdas.empty else 0))
+        c2.metric("Maior Perda",  fmt_kpi(perdas.min() if not perdas.empty else 0))
         c3, c4 = st.columns(2)
         c3.metric("Média Ganhos", fmt_kpi(lucros.mean() if not lucros.empty else 0))
         c4.metric("Média Perdas", fmt_kpi(perdas.mean() if not perdas.empty else 0))
@@ -1137,24 +1334,27 @@ elif menu == "📈 Performance Mensal":
         else:
             st.error(f"**Resultado Acumulado Total: {fmt_brl(total)}**")
 
-        # Scatter: retorno % por trade
+        # Scatter de retorno por trade
         if not df_historico.empty:
             st.subheader("Distribuição de Retorno por Trade (%)")
             df_scatter = df_historico.copy()
-            df_scatter['cor'] = df_scatter['resultado'].apply(lambda x: '#10b981' if x >= 0 else '#ef4444')
+            df_scatter['cor']     = df_scatter['resultado'].apply(lambda x: '#10b981' if x >= 0 else '#ef4444')
             df_scatter['trade_n'] = range(1, len(df_scatter) + 1)
+            df_scatter['tipo']    = df_scatter['daytrade'].apply(lambda x: 'DayTrade' if x else 'Swing')
 
             scatter = alt.Chart(df_scatter).mark_circle(size=60, opacity=0.7).encode(
                 x=alt.X('trade_n:Q', title='Trade #'),
                 y=alt.Y('retorno_pct:Q', title='Retorno (%)'),
                 color=alt.Color('cor:N', scale=None, legend=None),
+                shape=alt.Shape('tipo:N', legend=alt.Legend(title='Tipo')),
                 tooltip=[
                     alt.Tooltip('ativo:N', title='Ativo'),
                     alt.Tooltip('data:T', title='Data', format='%d/%m/%Y'),
+                    alt.Tooltip('tipo:N', title='Tipo'),
                     alt.Tooltip('retorno_pct:Q', title='Retorno (%)', format='.2f'),
                     alt.Tooltip('resultado:Q', title='Resultado (R$)', format=',.2f'),
                 ]
-            ).properties(height=240)
+            ).properties(height=260)
             zero_line = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(
                 color='#2a3548', strokeDash=[4, 4]
             ).encode(y='y:Q')
@@ -1187,7 +1387,6 @@ elif menu == "🔍 Análise Individual":
         df_carteira_bdr, df_historico_bdr, df_mensal_bdr = calculate_performance(df_ativo)
         metrics_bdr = calc_advanced_metrics(df_historico_bdr)
 
-        # Filtra exibição pelo período
         df_hist_filtrado = pd.DataFrame()
         if not df_historico_bdr.empty:
             df_hist_filtrado = df_historico_bdr[
@@ -1195,19 +1394,30 @@ elif menu == "🔍 Análise Individual":
                 (df_historico_bdr['data'].dt.date <= data_fim)
             ]
 
-        # ── KPIs do ativo ──
+        # ── KPIs ──
         st.divider()
-        total_trades_bdr = metrics_bdr.get('total_trades', 0)
-        lucro_bdr = df_hist_filtrado['resultado'].sum() if not df_hist_filtrado.empty else 0.0
-        win_bdr = (df_hist_filtrado['resultado'] > 0).mean() * 100 if not df_hist_filtrado.empty else 0.0
-        payoff_bdr = metrics_bdr.get('payoff_ratio', 0.0)
+        lucro_bdr   = df_hist_filtrado['resultado'].sum() if not df_hist_filtrado.empty else 0.0
+        win_bdr     = (df_hist_filtrado['resultado'] > 0).mean() * 100 if not df_hist_filtrado.empty else 0.0
+        payoff_bdr  = metrics_bdr.get('payoff_ratio')
+        sharpe_bdr  = metrics_bdr.get('sharpe')
+        sortino_bdr = metrics_bdr.get('sortino')
+        max_dd_bdr  = metrics_bdr.get('max_drawdown', 0.0)
+        vol_bdr     = metrics_bdr.get('vol_anual_pct', 0.0)
 
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         c1.metric("Resultado no Período", fmt_kpi(lucro_bdr))
-        c2.metric("Trades no Período", str(len(df_hist_filtrado)))
-        c3, c4 = st.columns(2)
-        c3.metric("Win Rate", f"{win_bdr:.1f}%")
-        c4.metric("Payoff Ratio", f"{payoff_bdr:.2f}×")
+        c2.metric("Trades no Período",    str(len(df_hist_filtrado)))
+        c3.metric("Win Rate",             f"{win_bdr:.1f}%")
+
+        c4, c5, c6 = st.columns(3)
+        c4.metric("Payoff Ratio",   fmt_metric(payoff_bdr, ".2f", "×"))
+        c5.metric("Sharpe Ratio",   fmt_metric(sharpe_bdr, ".3f"))
+        c6.metric("Sortino Ratio",  fmt_metric(sortino_bdr, ".3f"))
+
+        c7, c8, c9 = st.columns(3)
+        c7.metric("Max Drawdown",   fmt_metric(max_dd_bdr, ".2f", "", "R$ "))
+        c8.metric("Volatilidade Anual", f"{vol_bdr:.1f}%" if vol_bdr else "N/A")
+        c9.metric("Recovery Factor", fmt_metric(metrics_bdr.get('recovery_factor'), ".2f", "×"))
 
         st.divider()
         st.subheader("Posição Atual")
@@ -1217,8 +1427,8 @@ elif menu == "🔍 Análise Individual":
                 row_p = df_pos.iloc[0]
                 cm1, cm2, cm3 = st.columns(3)
                 cm1.metric("Qtde em Carteira", int(row_p['Quantidade']))
-                cm2.metric("Preço Médio", fmt_kpi(row_p['Preço Médio']))
-                cm3.metric("Custo Total", fmt_kpi(row_p['Valor Investido']))
+                cm2.metric("Preço Médio",      fmt_kpi(row_p['Preço Médio']))
+                cm3.metric("Custo Total",      fmt_kpi(row_p['Valor Investido']))
             else:
                 st.info("Sem posição aberta.")
         else:
@@ -1226,17 +1436,20 @@ elif menu == "🔍 Análise Individual":
 
         st.subheader("Trades Fechados no Período")
         if not df_hist_filtrado.empty:
-            df_show = df_hist_filtrado[['data', 'qtde_vendida', 'preco_medio_compra', 'preco_venda', 'resultado', 'retorno_pct']].copy()
-            df_show['data'] = df_show['data'].dt.strftime('%d/%m/%Y')
-            df_show.columns = ['Data', 'Qtde', 'PM Compra', 'Preço Venda', 'Resultado (R$)', 'Retorno (%)']
+            df_show = df_hist_filtrado[
+                ['data', 'qtde_vendida', 'preco_medio_compra', 'preco_venda', 'resultado', 'retorno_pct', 'daytrade']
+            ].copy()
+            df_show['data']     = df_show['data'].dt.strftime('%d/%m/%Y')
+            df_show['daytrade'] = df_show['daytrade'].apply(lambda x: '⚡ DT' if x else 'Swing')
+            df_show.columns     = ['Data', 'Qtde', 'PM Compra', 'Preço Venda', 'Resultado (R$)', 'Retorno (%)', 'Tipo']
             st.dataframe(
                 df_show.style
                     .map(color_result, subset=['Resultado (R$)'])
                     .format({
-                        'PM Compra': brl4,
-                        'Preço Venda': brl4,
+                        'PM Compra':    brl4,
+                        'Preço Venda':  brl4,
                         'Resultado (R$)': brl,
-                        'Retorno (%)': '{:+.2f}%'
+                        'Retorno (%)':  '{:+.2f}%'
                     }),
                 use_container_width=True,
                 hide_index=True
@@ -1244,7 +1457,7 @@ elif menu == "🔍 Análise Individual":
         else:
             st.info("Nenhuma venda no período selecionado.")
 
-        # ── Resultado mensal do ativo ──
+        # Resultado mensal do ativo
         if not df_mensal_bdr.empty:
             st.subheader(f"Resultado Mensal — {ativo_selecionado}")
             df_m_chart = df_mensal_bdr.copy()
@@ -1260,20 +1473,42 @@ elif menu == "🔍 Análise Individual":
             ).properties(height=220)
             st.altair_chart(bars_bdr, use_container_width=True)
 
-        # ── Todas operações do ativo no período ──
+        # Curva de capital do ativo
+        if metrics_bdr.get('curva_capital') is not None and not metrics_bdr['curva_capital'].empty:
+            st.subheader(f"Curva de Capital — {ativo_selecionado}")
+            curva_bdr = metrics_bdr['curva_capital'].reset_index(drop=True)
+            df_cb = pd.DataFrame({'trade_n': range(1, len(curva_bdr) + 1), 'capital': curva_bdr.values})
+            line_cb = alt.Chart(df_cb).mark_line(color='#a78bfa', strokeWidth=2).encode(
+                x=alt.X('trade_n:Q', title='Trade #'),
+                y=alt.Y('capital:Q', title='Acumulado (R$)'),
+                tooltip=[alt.Tooltip('trade_n:Q', title='Trade #'),
+                         alt.Tooltip('capital:Q', title='Acumulado (R$)', format=',.2f')]
+            )
+            area_cb = alt.Chart(df_cb).mark_area(color='#a78bfa', opacity=0.15).encode(
+                x='trade_n:Q', y='capital:Q'
+            )
+            zero_cb = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(
+                color='#2a3548', strokeDash=[4, 4]
+            ).encode(y='y:Q')
+            st.altair_chart((area_cb + line_cb + zero_cb).properties(height=200), use_container_width=True)
+
+        # Todas as operações do ativo no período
         st.subheader(f"Todas as Operações de {ativo_selecionado}")
         df_ops = df_ativo[
             (df_ativo['data'].dt.date >= data_inicio) &
             (df_ativo['data'].dt.date <= data_fim)
         ].copy()
         if not df_ops.empty:
-            df_ops['data'] = df_ops['data'].dt.strftime('%d/%m/%Y')
+            df_ops['data']     = df_ops['data'].dt.strftime('%d/%m/%Y')
             df_ops['cv_label'] = df_ops['cv'].map({'C': '🟢 Compra', 'V': '🔴 Venda'})
+            df_ops['daytrade'] = df_ops['daytrade'].apply(lambda x: '⚡ DT' if x else '-') if 'daytrade' in df_ops.columns else '-'
             st.dataframe(
-                df_ops[['data', 'cv_label', 'quantidade', 'preco', 'valor']].rename(columns={
+                df_ops[['data', 'cv_label', 'quantidade', 'preco', 'preco_liquido', 'taxa_rateada', 'valor', 'daytrade', 'nr_nota']].rename(columns={
                     'data': 'Data', 'cv_label': 'Tipo', 'quantidade': 'Qtde',
-                    'preco': 'Preço (R$)', 'valor': 'Valor (R$)'
-                }).style.format({'Preço (R$)': brl4, 'Valor (R$)': brl}),
+                    'preco': 'Preço Bruto', 'preco_liquido': 'Preço Líq.',
+                    'taxa_rateada': 'Taxa', 'valor': 'Valor (R$)',
+                    'daytrade': 'DT', 'nr_nota': 'Nota'
+                }).style.format({'Preço Bruto': brl4, 'Preço Líq.': brl4, 'Taxa': brl, 'Valor (R$)': brl}),
                 use_container_width=True,
                 hide_index=True
             )
@@ -1286,7 +1521,7 @@ elif menu == "🔍 Análise Individual":
 # ─────────────────────────────────────────────
 elif menu == "🧮 Métricas Avançadas":
     st.title("Métricas Avançadas de Performance")
-    st.caption("Análise quantitativa do seu estilo e histórico de trading. Valores brutos sem taxas.")
+    st.caption("Análise quantitativa do seu estilo e histórico de trading.")
 
     df = load_data(conn)
     _, df_historico, _ = calculate_performance(df)
@@ -1297,44 +1532,56 @@ elif menu == "🧮 Métricas Avançadas":
     else:
         # ── Bloco 1: Estatísticas Gerais ──
         st.subheader("📌 Estatísticas Gerais")
-        c1, c2 = st.columns(2)
-        c1.metric("Total de Trades", str(metrics['total_trades']))
-        c2.metric("Win Rate", f"{metrics['win_rate']:.2f}%")
-        c3, c4 = st.columns(2)
-        c3.metric("Trades Vencedores", str(metrics['trades_lucro']))
-        c4.metric("Trades Perdedores", str(metrics['trades_perda']))
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total de Trades",     str(metrics['total_trades']))
+        c2.metric("Win Rate",            f"{metrics['win_rate']:.2f}%")
+        c3.metric("Trades Vencedores",   str(metrics['trades_lucro']))
+        c4.metric("Trades Perdedores",   str(metrics['trades_perda']))
+
+        if metrics.get('media_dias_entre_trades') is not None:
+            st.caption(f"Frequência média: **{metrics['media_dias_entre_trades']:.1f} dias** entre trades")
 
         st.divider()
 
-        # ── Bloco 2: Métricas de Risco/Retorno ──
+        # ── Bloco 2: Risco/Retorno ──
         st.subheader("📐 Risco e Retorno")
-        c1, c2 = st.columns(2)
-        c1.metric("Fator de Lucro", f"{metrics['fator_lucro']:.2f}×",
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Fator de Lucro",  fmt_metric(metrics['fator_lucro'], ".2f", "×"),
                   help="Soma dos ganhos / soma das perdas. >1.5 é saudável.")
-        c2.metric("Payoff Ratio", f"{metrics['payoff_ratio']:.2f}×",
+        c2.metric("Payoff Ratio",    fmt_metric(metrics['payoff_ratio'], ".2f", "×"),
                   help="Média dos ganhos / média das perdas. >1.0 é positivo.")
-        c3, c4 = st.columns(2)
         c3.metric("Expectativa/Trade", fmt_kpi(metrics['expectativa']),
                   help="Valor esperado por trade com base no histórico.")
-        c4.metric("Sharpe Simplificado", f"{metrics['sharpe']:.3f}",
+
+        c4, c5, c6 = st.columns(3)
+        c4.metric("Sharpe Simplificado", fmt_metric(metrics['sharpe'], ".3f"),
                   help="Média dos retornos % / desvio padrão. >0 é positivo.")
+        c5.metric("Sortino Ratio",       fmt_metric(metrics['sortino'], ".3f"),
+                  help="Como Sharpe, mas usa apenas a volatilidade dos retornos negativos.")
+        c6.metric("Volatilidade Anual",  f"{metrics['vol_anual_pct']:.1f}%" if metrics['vol_anual_pct'] else "N/A",
+                  help="Desvio padrão dos retornos anualizado (√252).")
 
         st.divider()
 
         # ── Bloco 3: Drawdown ──
-        st.subheader("📉 Drawdown")
+        st.subheader("📉 Drawdown e Recuperação")
         c1, c2, c3 = st.columns(3)
         c1.metric("Máximo Drawdown (R$)", fmt_kpi(metrics['max_drawdown']))
-        c2.metric("Máximo Drawdown (%)", f"{metrics['max_drawdown_pct']:.2f}%")
-        c3.metric("Calmar Ratio", f"{metrics['calmar']:.2f}×",
+        c2.metric("Máximo Drawdown (%)",  fmt_metric(metrics['max_drawdown_pct'], ".2f", "%"))
+        c3.metric("Calmar Ratio",         fmt_metric(metrics['calmar'], ".2f", "×"),
                   help="Lucro total / |Max Drawdown|. >1 é bom.")
 
-        # Gráfico de Drawdown
+        c4, c5 = st.columns(2)
+        c4.metric("Recovery Factor", fmt_metric(metrics['recovery_factor'], ".2f", "×"),
+                  help="Lucro líquido / |Max Drawdown|. Indica eficiência de recuperação.")
+        c5.metric("Maior Seq. de Perdas", f"{metrics['max_seq_loss']} trades")
+
         if metrics.get('drawdown_series') is not None and not metrics['drawdown_series'].empty:
             dd = metrics['drawdown_series'].reset_index(drop=True)
             df_dd = pd.DataFrame({'trade_n': range(1, len(dd) + 1), 'drawdown': dd.values})
             dd_area = alt.Chart(df_dd).mark_area(
-                color='#ef4444', opacity=0.3, line={'color': '#ef4444', 'strokeWidth': 1.5}
+                color='#ef4444', opacity=0.3,
+                line={'color': '#ef4444', 'strokeWidth': 1.5}
             ).encode(
                 x=alt.X('trade_n:Q', title='Trade #'),
                 y=alt.Y('drawdown:Q', title='Drawdown (R$)'),
@@ -1358,12 +1605,12 @@ elif menu == "🧮 Métricas Avançadas":
 
         st.divider()
 
-        # ── Bloco 5: Distribuição dos retornos ──
+        # ── Bloco 5: Distribuição ──
         st.subheader("📊 Distribuição dos Retornos (%)")
         c1, c2, c3 = st.columns(3)
-        c1.metric("Retorno Médio", f"{metrics['retorno_medio_pct']:+.2f}%")
-        c2.metric("Melhor Trade", f"{metrics['retorno_melhor_pct']:+.2f}%")
-        c3.metric("Pior Trade", f"{metrics['retorno_pior_pct']:+.2f}%")
+        c1.metric("Retorno Médio",  f"{metrics['retorno_medio_pct']:+.2f}%")
+        c2.metric("Melhor Trade",   f"{metrics['retorno_melhor_pct']:+.2f}%")
+        c3.metric("Pior Trade",     f"{metrics['retorno_pior_pct']:+.2f}%")
 
         if not df_historico.empty:
             hist = alt.Chart(df_historico).mark_bar(
@@ -1378,9 +1625,43 @@ elif menu == "🧮 Métricas Avançadas":
             ).properties(height=220, title='Histograma de Retornos')
             st.altair_chart(hist, use_container_width=True)
 
+            # Métricas rolling (janela de 20 trades)
+            if len(df_historico) >= 20:
+                st.divider()
+                st.subheader("📈 Métricas Rolling (Janela de 20 Trades)")
+                df_roll = df_historico.copy().reset_index(drop=True)
+                df_roll['trade_n']       = range(1, len(df_roll) + 1)
+                df_roll['wr_rolling']    = (df_roll['resultado'] > 0).rolling(20).mean() * 100
+                df_roll['ret_rolling']   = df_roll['retorno_pct'].rolling(20).mean()
+                df_roll['vol_rolling']   = df_roll['retorno_pct'].rolling(20).std()
+
+                line_wr = alt.Chart(df_roll.dropna(subset=['wr_rolling'])).mark_line(
+                    color='#10b981', strokeWidth=2
+                ).encode(
+                    x=alt.X('trade_n:Q', title='Trade #'),
+                    y=alt.Y('wr_rolling:Q', title='Win Rate Rolling (%)'),
+                    tooltip=[alt.Tooltip('trade_n:Q', title='Trade #'),
+                             alt.Tooltip('wr_rolling:Q', title='WR% (20)', format='.1f')]
+                )
+                rule50 = alt.Chart(pd.DataFrame({'y': [50]})).mark_rule(
+                    color='#64748b', strokeDash=[4, 4]
+                ).encode(y='y:Q')
+                st.altair_chart((line_wr + rule50).properties(height=180, title='Win Rate Rolling (20 trades)'),
+                                use_container_width=True)
+
+                line_vol = alt.Chart(df_roll.dropna(subset=['vol_rolling'])).mark_line(
+                    color='#f59e0b', strokeWidth=2
+                ).encode(
+                    x=alt.X('trade_n:Q', title='Trade #'),
+                    y=alt.Y('vol_rolling:Q', title='Volatilidade (%)'),
+                    tooltip=[alt.Tooltip('trade_n:Q', title='Trade #'),
+                             alt.Tooltip('vol_rolling:Q', title='Vol% (20)', format='.2f')]
+                ).properties(height=160, title='Volatilidade Rolling (20 trades)')
+                st.altair_chart(line_vol, use_container_width=True)
+
         st.divider()
 
-        # ── Bloco 6: Breakdown por Ativo ──
+        # ── Bloco 6: Ranking por Ativo ──
         st.subheader("🏆 Ranking de Ativos por Resultado")
         df_rank = (
             df_historico.groupby('ativo')
@@ -1388,25 +1669,32 @@ elif menu == "🧮 Métricas Avançadas":
                 resultado_total=('resultado', 'sum'),
                 trades=('resultado', 'count'),
                 win_rate=('resultado', lambda x: (x > 0).mean() * 100),
-                retorno_medio=('retorno_pct', 'mean')
+                retorno_medio=('retorno_pct', 'mean'),
+                maior_ganho=('resultado', 'max'),
+                maior_perda=('resultado', 'min'),
             )
             .reset_index()
             .sort_values('resultado_total', ascending=False)
         )
-        df_rank.columns = ['Ativo', 'Resultado (R$)', 'Trades', 'Win Rate (%)', 'Retorno Médio (%)']
+        df_rank.columns = ['Ativo', 'Resultado (R$)', 'Trades', 'Win Rate (%)',
+                           'Retorno Médio (%)', 'Maior Ganho (R$)', 'Maior Perda (R$)']
         st.dataframe(
             df_rank.style
-                .map(color_result, subset=['Resultado (R$)'])
+                .map(color_result, subset=['Resultado (R$)', 'Maior Ganho (R$)', 'Maior Perda (R$)'])
                 .format({
-                    'Resultado (R$)': brl,
-                    'Win Rate (%)': '{:.1f}%',
-                    'Retorno Médio (%)': '{:+.2f}%'
+                    'Resultado (R$)':   brl,
+                    'Win Rate (%)':     '{:.1f}%',
+                    'Retorno Médio (%)': '{:+.2f}%',
+                    'Maior Ganho (R$)': brl,
+                    'Maior Perda (R$)': brl,
                 }),
             use_container_width=True,
             hide_index=True
         )
 
-        bar_rank = alt.Chart(df_rank.head(15)).mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4).encode(
+        bar_rank = alt.Chart(df_rank.head(15)).mark_bar(
+            cornerRadiusTopRight=4, cornerRadiusBottomRight=4
+        ).encode(
             y=alt.Y('Ativo:N', sort='-x', title=None),
             x=alt.X('Resultado (R$):Q', title='Resultado Acumulado (R$)'),
             color=alt.condition(
@@ -1418,9 +1706,157 @@ elif menu == "🧮 Métricas Avançadas":
                 alt.Tooltip('Ativo:N'),
                 alt.Tooltip('Resultado (R$):Q', format=',.2f'),
                 alt.Tooltip('Win Rate (%):Q', format='.1f'),
+                alt.Tooltip('Retorno Médio (%):Q', format='.2f'),
             ]
         ).properties(height=max(180, len(df_rank.head(15)) * 28))
         st.altair_chart(bar_rank, use_container_width=True)
+
+        # Correlação entre ativos (se houver pelo menos 2)
+        if df_historico['ativo'].nunique() >= 2:
+            st.divider()
+            st.subheader("🔗 Correlação entre Ativos")
+            df_corr_pivot = df_historico.pivot_table(
+                index='mes_ano', columns='ativo', values='resultado', aggfunc='sum'
+            ).fillna(0)
+            if df_corr_pivot.shape[0] > 2 and df_corr_pivot.shape[1] >= 2:
+                corr_matrix = df_corr_pivot.corr()
+                corr_long = corr_matrix.reset_index().melt(id_vars='ativo', var_name='ativo2', value_name='correlacao')
+                heat_corr = alt.Chart(corr_long).mark_rect().encode(
+                    x=alt.X('ativo:O', title=None),
+                    y=alt.Y('ativo2:O', title=None),
+                    color=alt.Color('correlacao:Q',
+                                    scale=alt.Scale(scheme='redblue', domain=[-1, 0, 1]),
+                                    title='Correlação'),
+                    tooltip=[
+                        alt.Tooltip('ativo:O', title='Ativo A'),
+                        alt.Tooltip('ativo2:O', title='Ativo B'),
+                        alt.Tooltip('correlacao:Q', title='Correlação', format='.2f'),
+                    ]
+                ).properties(
+                    height=max(200, corr_matrix.shape[0] * 40),
+                    title='Correlação de Resultados Mensais entre Ativos'
+                )
+                st.altair_chart(heat_corr, use_container_width=True)
+                st.caption("Baseado em resultado mensal por ativo. Correlação negativa = diversificação eficiente.")
+            else:
+                st.caption("Dados insuficientes para matriz de correlação (mínimo 3 meses e 2 ativos).")
+
+
+# ─────────────────────────────────────────────
+# PÁGINA: DAY TRADE vs SWING
+# ─────────────────────────────────────────────
+elif menu == "⚡ Day Trade vs Swing":
+    st.title("Day Trade vs Swing Trade")
+    st.caption("Comparação detalhada entre as duas modalidades de operação.")
+
+    df = load_data(conn)
+    _, df_historico, _ = calculate_performance(df)
+
+    if df_historico.empty:
+        st.info("Nenhuma operação de venda registrada.")
+    else:
+        df_dt = df_historico[df_historico['daytrade'] == True].copy()
+        df_sw = df_historico[df_historico['daytrade'] == False].copy()
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("⚡ Day Trade")
+            if not df_dt.empty:
+                wr_dt  = (df_dt['resultado'] > 0).mean() * 100
+                med_dt = df_dt['resultado'].mean()
+                m_dt   = calc_advanced_metrics(df_dt)
+                st.metric("Total de Trades",     str(len(df_dt)))
+                st.metric("Resultado Total",     fmt_kpi(df_dt['resultado'].sum()))
+                st.metric("Win Rate",            f"{wr_dt:.1f}%")
+                st.metric("Média por Trade",     fmt_kpi(med_dt))
+                st.metric("Payoff Ratio",        fmt_metric(m_dt.get('payoff_ratio'), ".2f", "×"))
+                st.metric("Fator de Lucro",      fmt_metric(m_dt.get('fator_lucro'), ".2f", "×"))
+                st.metric("Max Drawdown",        fmt_metric(m_dt.get('max_drawdown'), ".2f", "", "R$ "))
+                st.metric("Sharpe",              fmt_metric(m_dt.get('sharpe'), ".3f"))
+            else:
+                st.info("Nenhum Day Trade registrado.")
+
+        with col2:
+            st.subheader("📅 Swing Trade")
+            if not df_sw.empty:
+                wr_sw  = (df_sw['resultado'] > 0).mean() * 100
+                med_sw = df_sw['resultado'].mean()
+                m_sw   = calc_advanced_metrics(df_sw)
+                st.metric("Total de Trades",     str(len(df_sw)))
+                st.metric("Resultado Total",     fmt_kpi(df_sw['resultado'].sum()))
+                st.metric("Win Rate",            f"{wr_sw:.1f}%")
+                st.metric("Média por Trade",     fmt_kpi(med_sw))
+                st.metric("Payoff Ratio",        fmt_metric(m_sw.get('payoff_ratio'), ".2f", "×"))
+                st.metric("Fator de Lucro",      fmt_metric(m_sw.get('fator_lucro'), ".2f", "×"))
+                st.metric("Max Drawdown",        fmt_metric(m_sw.get('max_drawdown'), ".2f", "", "R$ "))
+                st.metric("Sharpe",              fmt_metric(m_sw.get('sharpe'), ".3f"))
+            else:
+                st.info("Nenhum Swing Trade registrado.")
+
+        st.divider()
+
+        # Comparativo visual
+        if not df_dt.empty and not df_sw.empty:
+            st.subheader("Comparativo de Resultados por Mês")
+            df_dt_m = df_dt.groupby('mes_ano')['resultado'].sum().reset_index()
+            df_dt_m['tipo'] = 'Day Trade'
+            df_sw_m = df_sw.groupby('mes_ano')['resultado'].sum().reset_index()
+            df_sw_m['tipo'] = 'Swing'
+            df_comp = pd.concat([df_dt_m, df_sw_m])
+
+            bars_comp = alt.Chart(df_comp).mark_bar().encode(
+                x=alt.X('mes_ano:N', title='Mês', sort=None, axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y('resultado:Q', title='Resultado (R$)'),
+                color=alt.Color('tipo:N', scale=alt.Scale(
+                    domain=['Day Trade', 'Swing'],
+                    range=['#f59e0b', '#3b82f6']
+                )),
+                xOffset='tipo:N',
+                tooltip=[
+                    alt.Tooltip('mes_ano:N', title='Mês'),
+                    alt.Tooltip('tipo:N', title='Tipo'),
+                    alt.Tooltip('resultado:Q', title='Resultado (R$)', format=',.2f'),
+                ]
+            ).properties(height=280)
+            st.altair_chart(bars_comp, use_container_width=True)
+
+            # Histograma comparativo de retornos
+            st.subheader("Distribuição de Retornos — Day Trade vs Swing (%)")
+            df_hist_comp = pd.concat([
+                df_dt[['retorno_pct']].assign(tipo='Day Trade'),
+                df_sw[['retorno_pct']].assign(tipo='Swing')
+            ])
+            hist_comp = alt.Chart(df_hist_comp).mark_bar(opacity=0.6).encode(
+                x=alt.X('retorno_pct:Q', bin=alt.Bin(maxbins=25), title='Retorno (%)'),
+                y=alt.Y('count():Q', title='Frequência', stack=None),
+                color=alt.Color('tipo:N', scale=alt.Scale(
+                    domain=['Day Trade', 'Swing'],
+                    range=['#f59e0b', '#3b82f6']
+                )),
+                tooltip=[
+                    alt.Tooltip('tipo:N', title='Tipo'),
+                    alt.Tooltip('retorno_pct:Q', bin=True, title='Retorno (%)'),
+                    alt.Tooltip('count():Q', title='Frequência'),
+                ]
+            ).properties(height=220)
+            st.altair_chart(hist_comp, use_container_width=True)
+
+        # Tabela combinada
+        st.divider()
+        st.subheader("Todos os Trades Fechados")
+        df_todos = df_historico.copy()
+        df_todos['Tipo']    = df_todos['daytrade'].apply(lambda x: '⚡ DT' if x else 'Swing')
+        df_todos['Data']    = df_todos['data'].dt.strftime('%d/%m/%Y')
+        df_show = df_todos[['Data', 'ativo', 'Tipo', 'qtde_vendida', 'preco_medio_compra', 'preco_venda', 'resultado', 'retorno_pct']].copy()
+        df_show.columns     = ['Data', 'Ativo', 'Tipo', 'Qtde', 'PM Compra', 'Preço Venda', 'Resultado (R$)', 'Retorno (%)']
+        st.dataframe(
+            df_show.style
+                .map(color_result, subset=['Resultado (R$)'])
+                .format({'PM Compra': brl4, 'Preço Venda': brl4, 'Resultado (R$)': brl, 'Retorno (%)': '{:+.2f}%'}),
+            use_container_width=True,
+            hide_index=True
+        )
 
 
 # ─────────────────────────────────────────────
@@ -1433,13 +1869,14 @@ elif menu == "📋 Histórico de Operações":
     if df.empty:
         st.info("Nenhuma operação encontrada.")
     else:
-        # Filtros
-        col_f1, col_f2 = st.columns(2)
+        col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
             ativos_filtro = ['Todos'] + sorted(df['ativo'].unique().tolist())
-            ativo_filtro = st.selectbox("Filtrar por Ativo", ativos_filtro)
+            ativo_filtro  = st.selectbox("Filtrar por Ativo", ativos_filtro)
         with col_f2:
             tipo_filtro = st.selectbox("Tipo", ['Todos', 'Compra (C)', 'Venda (V)'])
+        with col_f3:
+            dt_filtro = st.selectbox("DayTrade", ['Todos', 'Somente DT', 'Somente Swing'])
 
         df_view = df.copy()
         if ativo_filtro != 'Todos':
@@ -1448,32 +1885,136 @@ elif menu == "📋 Histórico de Operações":
             df_view = df_view[df_view['cv'] == 'C']
         elif tipo_filtro == 'Venda (V)':
             df_view = df_view[df_view['cv'] == 'V']
+        if dt_filtro == 'Somente DT' and 'daytrade' in df_view.columns:
+            df_view = df_view[df_view['daytrade'] == 1]
+        elif dt_filtro == 'Somente Swing' and 'daytrade' in df_view.columns:
+            df_view = df_view[df_view['daytrade'] == 0]
 
-        df_view['cv'] = df_view['cv'].map({'C': '🟢 Compra', 'V': '🔴 Venda'})
+        df_view['cv']       = df_view['cv'].map({'C': '🟢 Compra', 'V': '🔴 Venda'})
         df_view['daytrade'] = df_view['daytrade'].map({1: '⚡ Sim', 0: 'Não'}) if 'daytrade' in df_view.columns else 'Não'
-        cols_show = ['data', 'cv', 'ativo', 'quantidade', 'preco', 'preco_liquido', 'taxa_rateada', 'valor', 'daytrade']
+
+        cols_show = ['data', 'cv', 'ativo', 'quantidade', 'preco', 'preco_liquido', 'taxa_rateada', 'valor', 'daytrade', 'nr_nota']
         cols_show = [c for c in cols_show if c in df_view.columns]
-        df_view = df_view[cols_show].rename(columns={
+        df_view   = df_view[cols_show].rename(columns={
             'data': 'Data', 'cv': 'Tipo', 'ativo': 'Ativo',
             'quantidade': 'Qtde', 'preco': 'Preço Bruto',
             'preco_liquido': 'Preço Líq.', 'taxa_rateada': 'Taxa Rateada',
-            'valor': 'Valor (R$)', 'daytrade': 'DayTrade'
+            'valor': 'Valor (R$)', 'daytrade': 'DayTrade', 'nr_nota': 'Nota'
         })
 
         st.caption(f"Exibindo **{len(df_view)}** de **{len(df)}** operações")
-        fmt_cols = {c: brl4 for c in ['Preço Bruto','Preço Líq.'] if c in df_view.columns}
-        fmt_cols.update({c: brl for c in ['Taxa Rateada','Valor (R$)'] if c in df_view.columns})
+        fmt_cols = {c: brl4 for c in ['Preço Bruto', 'Preço Líq.'] if c in df_view.columns}
+        fmt_cols.update({c: brl for c in ['Taxa Rateada', 'Valor (R$)'] if c in df_view.columns})
+        st.dataframe(df_view.style.format(fmt_cols), use_container_width=True, hide_index=True)
+
+        col_csv, col_xlsx = st.columns(2)
+        with col_csv:
+            csv_data = df_view.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="⬇️ Exportar CSV",
+                data=csv_data,
+                file_name=f"historico_{datetime.date.today()}.csv",
+                mime='text/csv'
+            )
+        with col_xlsx:
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                df_view.to_excel(writer, index=False, sheet_name='Operações')
+            buf.seek(0)
+            st.download_button(
+                label="⬇️ Exportar Excel",
+                data=buf,
+                file_name=f"historico_{datetime.date.today()}.xlsx",
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+
+
+# ─────────────────────────────────────────────
+# PÁGINA: QUALIDADE DOS DADOS
+# ─────────────────────────────────────────────
+elif menu == "🔬 Qualidade dos Dados":
+    st.title("Qualidade dos Dados")
+    st.caption("Diagnóstico automático de integridade, consistência e completude das operações importadas.")
+
+    df = load_data(conn)
+    if df.empty:
+        st.info("Nenhum dado carregado.")
+    else:
+        alertas = calc_qualidade_dados(df)
+
+        if not alertas:
+            st.success("✅ Nenhum problema de qualidade detectado nos dados.")
+        else:
+            erros  = [a for a in alertas if a['nivel'] == 'erro']
+            avisos = [a for a in alertas if a['nivel'] == 'aviso']
+            if erros:
+                st.error(f"**{len(erros)} problema(s) crítico(s) encontrado(s):**")
+                for e in erros:
+                    st.markdown(f"• 🔴 {e['mensagem']}")
+            if avisos:
+                st.warning(f"**{len(avisos)} aviso(s):**")
+                for a in avisos:
+                    st.markdown(f"• 🟡 {a['mensagem']}")
+
+        st.divider()
+        st.subheader("Resumo Estatístico das Operações")
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total de Operações",   str(len(df)))
+        c2.metric("Ativos Únicos",        str(df['ativo'].nunique()))
+        c3.metric("Notas Processadas",    str(df['nr_nota'].nunique()) if 'nr_nota' in df.columns else "N/A")
+        datas_ok = pd.to_datetime(df['data'], format='%d/%m/%Y', errors='coerce').notna()
+        c4.metric("Datas Válidas",        f"{datas_ok.sum()}/{len(df)}")
+
+        st.divider()
+        st.subheader("Distribuição por Ativo")
+        df_dist = df.groupby('ativo').agg(
+            operacoes=('id', 'count'),
+            compras=('cv', lambda x: (x == 'C').sum()),
+            vendas=('cv', lambda x: (x == 'V').sum()),
+            valor_total=('valor', 'sum'),
+        ).reset_index().sort_values('operacoes', ascending=False)
+        df_dist.columns = ['Ativo', 'Operações', 'Compras', 'Vendas', 'Valor Total (R$)']
         st.dataframe(
-            df_view.style.format(fmt_cols),
-            use_container_width=True,
-            hide_index=True
+            df_dist.style.format({'Valor Total (R$)': brl}),
+            use_container_width=True, hide_index=True
         )
 
-        # Botão de exportação CSV
-        csv_data = df_view.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label="⬇️ Exportar CSV",
-            data=csv_data,
-            file_name=f"historico_operacoes_{datetime.date.today()}.csv",
-            mime='text/csv'
-        )
+        st.divider()
+        st.subheader("Distribuição de Operações por Período")
+        df_periodo = df.copy()
+        df_periodo['data_dt'] = pd.to_datetime(df_periodo['data'], format='%d/%m/%Y', errors='coerce')
+        df_periodo = df_periodo.dropna(subset=['data_dt'])
+        df_periodo['mes_ano'] = df_periodo['data_dt'].dt.strftime('%Y-%m')
+        df_por_mes = df_periodo.groupby('mes_ano').agg(
+            operacoes=('id', 'count'),
+            ativos=('ativo', 'nunique'),
+            valor_total=('valor', 'sum'),
+        ).reset_index()
+        df_por_mes.columns = ['Mês/Ano', 'Operações', 'Ativos', 'Volume (R$)']
+
+        bar_ops = alt.Chart(df_por_mes).mark_bar(color='#3b82f6', cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+            x=alt.X('Mês/Ano:N', sort=None, axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y('Operações:Q', title='Nº de Operações'),
+            tooltip=[
+                alt.Tooltip('Mês/Ano:N', title='Mês'),
+                alt.Tooltip('Operações:Q'),
+                alt.Tooltip('Ativos:Q', title='Ativos diferentes'),
+                alt.Tooltip('Volume (R$):Q', format=',.2f'),
+            ]
+        ).properties(height=220, title='Volume de Operações por Mês')
+        st.altair_chart(bar_ops, use_container_width=True)
+
+        st.divider()
+        st.subheader("Ativos Não Mapeados para Ticker B3")
+        ativos_db = set(df['ativo'].unique())
+        nao_mapeados = [a for a in ativos_db if a not in _TICKERS_CONHECIDOS and not re.search(r'\d{1,2}$', str(a))]
+        if nao_mapeados:
+            st.warning(
+                "Os seguintes ativos não foram reconhecidos como tickers B3 padrão. "
+                "Verifique se precisam ser adicionados ao dicionário `NOME_PARA_TICKER`:"
+            )
+            for nm in sorted(nao_mapeados):
+                st.markdown(f"• `{nm}`")
+        else:
+            st.success("Todos os ativos estão mapeados para tickers B3.")
