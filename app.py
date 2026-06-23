@@ -387,6 +387,104 @@ NOME_PARA_TICKER: dict[str, str] = {
     "BOOKING DRN ED":       "B1KN34",
     "FREEPORT DRN":         "F1CX34",   # Freeport-McMoRan (truncado)
     "FREEPORT DRN ED":      "F1CX34",
+    "NIKE DRN":             "NIKE34",   # Nike (truncado sem INC)
+    "NIKE DRN ED":          "NIKE34",
+    "TAIWANSMFAC DRN ED":   "TSMC34",   # TSMC sem espaço
+    # ── Telecom adicional ────────────────────────────────────────────────
+    "ATT INC DRN":          "ATTB34",   # AT&T Inc
+    "ATT INC DRN ED":       "ATTB34",
+    "VERIZON DRN":          "VERZ34",   # Verizon Communications
+    "VERIZON DRN ED":       "VERZ34",
+    "LUMEN TECH DRN":       "L2TH34",   # Lumen Technologies
+    "LUMEN TECH DRN ED":    "L2TH34",
+    # ── Financeiro adicional ──────────────────────────────────────────────
+    "UBS GROUP DRN":        "U1BS34",   # UBS Group AG
+    "UBS GROUP DRN ED":     "U1BS34",
+    "US BANCORP DRN":       "U2SB34",   # U.S. Bancorp
+    "US BANCORP DRN ED":    "U2SB34",
+    "WR BERKLEY C DRN":     "W2RB34",   # W. R. Berkley Corp
+    "WR BERKLEY C DRN ED":  "W2RB34",
+    "WESTERNUNION DRN":     "W2UN34",   # Western Union
+    "WESTERNUNION DRN ED":  "W2UN34",
+    # ── Tecnologia adicional ──────────────────────────────────────────────
+    "MARVELL TEC DRN":      "MRVL34",   # Marvell Technology Group
+    "MARVELL TEC DRN ED":   "MRVL34",
+    "FISERV INC DRN":       "F1SV34",   # Fiserv Inc
+    "FISERV INC DRN ED":    "F1SV34",
+    "PAYPAL HOLD DRN":      "PYPL34",   # PayPal (truncado diferente)
+    "PAYPAL HOLD DRN ED":   "PYPL34",
+    "OKTA INC DRN":         "O2KT34",   # Okta Inc
+    "OKTA INC DRN ED":      "O2KT34",
+    "PALANTIRTECH DRN":     "P1LT34",   # Palantir Technologies
+    "PALANTIRTECH DRN ED":  "P1LT34",
+    "ASML HOLD DRN":        "A2SL34",   # ASML Holding (chip litografia)
+    "ASML HOLD DRN ED":     "A2SL34",
+    "BROADCOM INC DRN":     "A1VG34",   # Broadcom (truncado sem sufixo)
+    "BROADCOM INC DRN ED":  "A1VG34",
+    # ── Energia / Materiais ───────────────────────────────────────────────
+    "ENPHASE ENER DRN":     "E1NP34",   # Enphase Energy
+    "ENPHASE ENER DRN ED":  "E1NP34",
+    "MP MATERIALS DRN":     "M2PM34",   # MP Materials
+    "MP MATERIALS DRN ED":  "M2PM34",
+    "TRANSOCEAN DRN":       "R1GI34",   # Transocean (perfuração offshore)
+    "TRANSOCEAN DRN ED":    "R1GI34",
+    "EXELON CORP DRN":      "E1XC34",   # Exelon Corp (energia elétrica)
+    "EXELON CORP DRN ED":   "E1XC34",
+    "DOW INC DRN":          "D2OW34",   # Dow Inc (química)
+    "DOW INC DRN ED":       "D2OW34",
+    "VISTRA CORP DRN ED":   "V2ST34",   # Vistra Corp (energia)
+    "VISTRA CORP DRN":      "V2ST34",
+    "VERTIV HOLDS DRN":     "V2RT34",   # Vertiv Holdings
+    "VERTIV HOLDS DRN ED":  "V2RT34",
+    # ── Saúde adicional ───────────────────────────────────────────────────
+    "INCYTE CORP DRN":      "I2NC34",   # Incyte Corp
+    "INCYTE CORP DRN ED":   "I2NC34",
+    "SAREPTA THER DRN":     "S2RT34",   # Sarepta Therapeutics
+    "SAREPTA THER DRN ED":  "S2RT34",
+    "NOVOCURE DRN":         "N2VC34",   # NovoCure Ltd
+    "NOVOCURE DRN ED":      "N2VC34",
+    "MEDICAL P TR DRN ED":  "M2PT34",   # Medical Properties Trust (REIT saúde)
+    "MEDICAL P TR DRN":     "M2PT34",
+    # ── Consumo / E-commerce ──────────────────────────────────────────────
+    "EBAY DRN":             "E1BA34",   # eBay Inc
+    "EBAY DRN ED":          "E1BA34",
+    "WAYFAIR INC DRN":      "W2YF34",   # Wayfair Inc
+    "WAYFAIR INC DRN ED":   "W2YF34",
+    "MACY S DRN":           "M2CY34",   # Macy's Inc
+    "MACY S DRN ED":        "M2CY34",
+    "STONE CO DRN":         "STOC31",   # StoneCo Ltd
+    "STONE CO DRN ED":      "STOC31",
+    "SEA LTD DRN":          "S2EA34",   # Sea Limited
+    "SEA LTD DRN ED":       "S2EA34",
+    "FIVERR INTL DRN":      "F2VR34",   # Fiverr International
+    "FIVERR INTL DRN ED":   "F2VR34",
+    "WARNER MUSIC DRN":     "W2MG34",   # Warner Music Group
+    "WARNER MUSIC DRN ED":  "W2MG34",
+    # ── Inovação / Deep Tech ──────────────────────────────────────────────
+    "QUANTUMSCAPE DRN":     "Q2SC34",   # QuantumScape (baterias estado sólido)
+    "QUANTUMSCAPE DRN ED":  "Q2SC34",
+    "RIGETTI COMP DRN":     "R2GT34",   # Rigetti Computing (computação quântica)
+    "RIGETTI COMP DRN ED":  "R2GT34",
+    "BEYOND MEAT DRN":      "B2YN34",   # Beyond Meat
+    "BEYOND MEAT DRN ED":   "B2YN34",
+    "PDD HOLDING DRN":      "P2DD34",   # PDD Holdings (Temu/Pinduoduo)
+    "PDD HOLDING DRN ED":   "P2DD34",
+    "COSTAR GROUP DRN":     "C2SG34",   # CoStar Group
+    "COSTAR GROUP DRN ED":  "C2SG34",
+    "UNITED RENTA DRN":     "U1RI34",   # United Rentals
+    "UNITED RENTA DRN ED":  "U1RI34",
+    "NEWMONT GOLD DRN":     "N2EM34",   # Newmont (truncado diferente de NEWMONT CORP)
+    "NEWMONT GOLD DRN ED":  "N2EM34",
+    # ── Brasil / Fundos ───────────────────────────────────────────────────
+    "NU HOLDINGS DRN":      "NUBR33",   # Nu Holdings (Nubank)
+    "NU HOLDINGS DRN ED":   "NUBR33",
+    "FIAGRO KINEA CI":      "KNCA11",   # Fiagro Kinea
+    "FIAGRO KINEA CI ER":   "KNCA11",
+    "FIAGRO SUNO CI ER":    "SNAG11",   # Fiagro Suno Agro
+    "FIAGRO SUNO CI":       "SNAG11",
+    # ── ETF / Certificados especiais ──────────────────────────────────────
+    "GX AI TECH DRE EB":    "XAIG11",   # Global X AI Tech ETF
+    "SOLAR TECH DRN":       "S2OL34",   # Solar Tech (verificar ticker exato)
     # ── Tecnologia adicional ──────────────────────────────────────────────
     "CISCO DRN":            "C1SC34",
     "CISCO DRN ED":         "C1SC34",
@@ -777,7 +875,7 @@ def calculate_performance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
     for _, row in df.iterrows():
         if not bool(row.get('daytrade', 0)) or row['cv'] != 'C':
             continue
-        key = (str(row['data'])[:10], row['ativo'], str(row.get('nr_nota', '')))
+        key = (str(row["data"])[:10], row["ativo"])
         if key not in dt_compras:
             dt_compras[key] = deque()
         pliq = _safe_float(row.get('preco_liquido') or row.get('preco'))
@@ -811,7 +909,7 @@ def calculate_performance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
 
         elif row['cv'] == 'V':
             if is_dt:
-                key = (data_str, ativo, nr_nota)
+                key = (data_str, ativo)
                 fila = dt_compras.get(key, deque())
                 lucro_dt    = 0.0
                 qtde_pareada = 0
@@ -821,7 +919,10 @@ def calculate_performance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                         lucro_dt    += preco_liq - pm_dt
                         qtde_pareada += 1
                     else:
-                        log.warning("DT sem compra pareada: %s %s nota=%s", data_str, ativo, nr_nota)
+                        _dt_key = f"dt_sem_compra:{data_str}:{ativo}"
+                        if _dt_key not in _ATIVOS_JA_AVISADOS:
+                            _ATIVOS_JA_AVISADOS.add(_dt_key)
+                            log.warning("DT sem compra pareada: %s %s", data_str, ativo)
 
                 if qtde_pareada > 0:
                     custo_dt = sum([preco_liq - lucro_dt / qtde_pareada] * qtde_pareada)
@@ -867,7 +968,10 @@ def calculate_performance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                     pos['qtde']       -= qtde_valida
                     pos['custo_total'] = pos['preco_medio'] * pos['qtde']
                 else:
-                    log.warning("Venda de %s sem posição em carteira na data %s.", ativo, data_str)
+                    _venda_key = f"venda_sem_pos:{ativo}"
+                    if _venda_key not in _ATIVOS_JA_AVISADOS:
+                        _ATIVOS_JA_AVISADOS.add(_venda_key)
+                        log.warning("Venda de %s sem posição em carteira (primeira ocorrência em %s).", ativo, data_str)
 
     # Monta carteira atual
     carteira_atual = [
@@ -1132,8 +1236,9 @@ ALTAIR_THEME = {
         "title": {"color": "#cbd5e1", "font": "Inter"},
     }
 }
-alt.themes.register("dark_finance", lambda: ALTAIR_THEME)
-alt.themes.enable("dark_finance")
+@alt.theme.register("dark_finance", enable=True)
+def _dark_finance_theme():
+    return ALTAIR_THEME
 
 
 # ─────────────────────────────────────────────
@@ -1249,7 +1354,7 @@ if menu == "🏠 Visão Geral":
                     alt.Tooltip('Valor Investido:Q', title='Valor (R$)', format=',.2f'),
                 ]
             ).properties(height=380)
-            st.altair_chart(pie, use_container_width=True)
+            st.altair_chart(pie, width="stretch")
         else:
             st.info("Carteira vazia.")
 
@@ -1269,7 +1374,7 @@ if menu == "🏠 Visão Geral":
                     alt.Tooltip('win_rate:Q', title='Win Rate (%)', format='.1f'),
                 ]
             ).properties(height=300)
-            st.altair_chart(bars, use_container_width=True)
+            st.altair_chart(bars, width="stretch")
         else:
             st.info("Nenhuma venda registrada.")
 
@@ -1293,7 +1398,7 @@ if menu == "🏠 Visão Geral":
             zero  = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(
                 color='#2a3548', strokeDash=[4, 4]
             ).encode(y='y:Q')
-            st.altair_chart((area + line + zero).properties(height=240), use_container_width=True)
+            st.altair_chart((area + line + zero).properties(height=240), width="stretch")
 
         # ── Heatmap Mensal ──
         if not df_historico.empty:
@@ -1318,7 +1423,7 @@ if menu == "🏠 Visão Geral":
                     alt.Tooltip('resultado:Q', title='Resultado (R$)', format=',.2f'),
                 ]
             ).properties(height=max(80, df_hm_pivot['ano'].nunique() * 50))
-            st.altair_chart(heatmap, use_container_width=True)
+            st.altair_chart(heatmap, width="stretch")
 
 
 # ─────────────────────────────────────────────
@@ -1398,7 +1503,7 @@ elif menu == "📥 Importar Notas":
 
             st.success(f"Concluído! **{total_novas}** novas operações importadas.")
             df_res = pd.DataFrame(resultados_upload, columns=['Arquivo', 'Operações', 'Taxas capturadas', 'Status'])
-            st.dataframe(df_res, use_container_width=True, hide_index=True)
+            st.dataframe(df_res, width="stretch", hide_index=True)
         else:
             st.warning("Selecione pelo menos um arquivo PDF.")
 
@@ -1410,7 +1515,7 @@ elif menu == "📥 Importar Notas":
         conn
     )
     if not df_arqs.empty:
-        st.dataframe(df_arqs, use_container_width=True, hide_index=True)
+        st.dataframe(df_arqs, width="stretch", hide_index=True)
     else:
         st.info("Nenhuma nota processada ainda.")
 
@@ -1446,7 +1551,7 @@ elif menu == "💼 Carteira Atual":
             df_view.style
                 .format({'Preço Médio': brl4, 'Valor Investido': brl, '% Carteira': '{:.2f}%'})
                 .map(lambda v: 'color: #f59e0b' if isinstance(v, (int, float)) and v > 20 else '', subset=['% Carteira']),
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -1463,7 +1568,7 @@ elif menu == "💼 Carteira Atual":
                 alt.Tooltip('% Carteira:Q', format='.2f'),
             ]
         ).properties(height=max(200, len(df_view.head(20)) * 28))
-        st.altair_chart(bar_h, use_container_width=True)
+        st.altair_chart(bar_h, width="stretch")
 
         # Linha de aviso de concentração
         if maior_pos_pct > 25:
@@ -1519,7 +1624,7 @@ elif menu == "📈 Performance Mensal":
                 alt.Tooltip('trades_dt:Q', title='DayTrades'),
             ]
         ).properties(height=280)
-        st.altair_chart(bars, use_container_width=True)
+        st.altair_chart(bars, width="stretch")
 
         # Resultado acumulado ao longo dos meses
         df_chart['acumulado'] = df_chart['resultado'].cumsum()
@@ -1531,7 +1636,7 @@ elif menu == "📈 Performance Mensal":
                 alt.Tooltip('acumulado:Q', title='Acumulado (R$)', format=',.2f'),
             ]
         ).properties(height=200, title='Resultado Acumulado por Mês')
-        st.altair_chart(line_acc, use_container_width=True)
+        st.altair_chart(line_acc, width="stretch")
 
         # Tabela mensal
         df_mensal_display = df_mensal.copy()
@@ -1540,7 +1645,7 @@ elif menu == "📈 Performance Mensal":
             df_mensal_display.style
                 .map(color_result, subset=['Resultado (R$)'])
                 .format({'Resultado (R$)': brl, 'Win Rate (%)': '{:.1f}%'}),
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -1586,7 +1691,7 @@ elif menu == "📈 Performance Mensal":
             zero_line = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(
                 color='#2a3548', strokeDash=[4, 4]
             ).encode(y='y:Q')
-            st.altair_chart((scatter + zero_line), use_container_width=True)
+            st.altair_chart((scatter + zero_line), width="stretch")
     else:
         st.info("Nenhuma operação de venda registrada para calcular performance.")
 
@@ -1679,7 +1784,7 @@ elif menu == "🔍 Análise Individual":
                         'Resultado (R$)': brl,
                         'Retorno (%)':  '{:+.2f}%'
                     }),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
         else:
@@ -1699,7 +1804,7 @@ elif menu == "🔍 Análise Individual":
                     alt.Tooltip('resultado:Q', title='Resultado (R$)', format=',.2f'),
                 ]
             ).properties(height=220)
-            st.altair_chart(bars_bdr, use_container_width=True)
+            st.altair_chart(bars_bdr, width="stretch")
 
         # Curva de capital do ativo
         if metrics_bdr.get('curva_capital') is not None and not metrics_bdr['curva_capital'].empty:
@@ -1718,7 +1823,7 @@ elif menu == "🔍 Análise Individual":
             zero_cb = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(
                 color='#2a3548', strokeDash=[4, 4]
             ).encode(y='y:Q')
-            st.altair_chart((area_cb + line_cb + zero_cb).properties(height=200), use_container_width=True)
+            st.altair_chart((area_cb + line_cb + zero_cb).properties(height=200), width="stretch")
 
         # Todas as operações do ativo no período
         st.subheader(f"Todas as Operações de {ativo_selecionado}")
@@ -1737,7 +1842,7 @@ elif menu == "🔍 Análise Individual":
                     'taxa_rateada': 'Taxa', 'valor': 'Valor (R$)',
                     'daytrade': 'DT', 'nr_nota': 'Nota'
                 }).style.format({'Preço Bruto': brl4, 'Preço Líq.': brl4, 'Taxa': brl, 'Valor (R$)': brl}),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
         else:
@@ -1818,7 +1923,7 @@ elif menu == "🧮 Métricas Avançadas":
                     alt.Tooltip('drawdown:Q', title='Drawdown (R$)', format=',.2f')
                 ]
             ).properties(height=200, title='Série de Drawdown')
-            st.altair_chart(dd_area, use_container_width=True)
+            st.altair_chart(dd_area, width="stretch")
 
         st.divider()
 
@@ -1851,7 +1956,7 @@ elif menu == "🧮 Métricas Avançadas":
                     alt.Tooltip('count():Q', title='Nº de Trades')
                 ]
             ).properties(height=220, title='Histograma de Retornos')
-            st.altair_chart(hist, use_container_width=True)
+            st.altair_chart(hist, width="stretch")
 
             # Métricas rolling (janela de 20 trades)
             if len(df_historico) >= 20:
@@ -1875,7 +1980,7 @@ elif menu == "🧮 Métricas Avançadas":
                     color='#64748b', strokeDash=[4, 4]
                 ).encode(y='y:Q')
                 st.altair_chart((line_wr + rule50).properties(height=180, title='Win Rate Rolling (20 trades)'),
-                                use_container_width=True)
+                                width="stretch")
 
                 line_vol = alt.Chart(df_roll.dropna(subset=['vol_rolling'])).mark_line(
                     color='#f59e0b', strokeWidth=2
@@ -1885,7 +1990,7 @@ elif menu == "🧮 Métricas Avançadas":
                     tooltip=[alt.Tooltip('trade_n:Q', title='Trade #'),
                              alt.Tooltip('vol_rolling:Q', title='Vol% (20)', format='.2f')]
                 ).properties(height=160, title='Volatilidade Rolling (20 trades)')
-                st.altair_chart(line_vol, use_container_width=True)
+                st.altair_chart(line_vol, width="stretch")
 
         st.divider()
 
@@ -1916,7 +2021,7 @@ elif menu == "🧮 Métricas Avançadas":
                     'Maior Ganho (R$)': brl,
                     'Maior Perda (R$)': brl,
                 }),
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -1937,7 +2042,7 @@ elif menu == "🧮 Métricas Avançadas":
                 alt.Tooltip('Retorno Médio (%):Q', format='.2f'),
             ]
         ).properties(height=max(180, len(df_rank.head(15)) * 28))
-        st.altair_chart(bar_rank, use_container_width=True)
+        st.altair_chart(bar_rank, width="stretch")
 
         # Correlação entre ativos (se houver pelo menos 2)
         if df_historico['ativo'].nunique() >= 2:
@@ -1964,7 +2069,7 @@ elif menu == "🧮 Métricas Avançadas":
                     height=max(200, corr_matrix.shape[0] * 40),
                     title='Correlação de Resultados Mensais entre Ativos'
                 )
-                st.altair_chart(heat_corr, use_container_width=True)
+                st.altair_chart(heat_corr, width="stretch")
                 st.caption("Baseado em resultado mensal por ativo. Correlação negativa = diversificação eficiente.")
             else:
                 st.caption("Dados insuficientes para matriz de correlação (mínimo 3 meses e 2 ativos).")
@@ -2047,7 +2152,7 @@ elif menu == "⚡ Day Trade vs Swing":
                     alt.Tooltip('resultado:Q', title='Resultado (R$)', format=',.2f'),
                 ]
             ).properties(height=280)
-            st.altair_chart(bars_comp, use_container_width=True)
+            st.altair_chart(bars_comp, width="stretch")
 
             # Histograma comparativo de retornos
             st.subheader("Distribuição de Retornos — Day Trade vs Swing (%)")
@@ -2068,7 +2173,7 @@ elif menu == "⚡ Day Trade vs Swing":
                     alt.Tooltip('count():Q', title='Frequência'),
                 ]
             ).properties(height=220)
-            st.altair_chart(hist_comp, use_container_width=True)
+            st.altair_chart(hist_comp, width="stretch")
 
         # Tabela combinada
         st.divider()
@@ -2082,7 +2187,7 @@ elif menu == "⚡ Day Trade vs Swing":
             df_show.style
                 .map(color_result, subset=['Resultado (R$)'])
                 .format({'PM Compra': brl4, 'Preço Venda': brl4, 'Resultado (R$)': brl, 'Retorno (%)': '{:+.2f}%'}),
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -2133,7 +2238,7 @@ elif menu == "📋 Histórico de Operações":
         st.caption(f"Exibindo **{len(df_view)}** de **{len(df)}** operações")
         fmt_cols = {c: brl4 for c in ['Preço Bruto', 'Preço Líq.'] if c in df_view.columns}
         fmt_cols.update({c: brl for c in ['Taxa Rateada', 'Valor (R$)'] if c in df_view.columns})
-        st.dataframe(df_view.style.format(fmt_cols), use_container_width=True, hide_index=True)
+        st.dataframe(df_view.style.format(fmt_cols), width="stretch", hide_index=True)
 
         col_csv, col_xlsx = st.columns(2)
         with col_csv:
@@ -2205,7 +2310,7 @@ elif menu == "🔬 Qualidade dos Dados":
         df_dist.columns = ['Ativo', 'Operações', 'Compras', 'Vendas', 'Valor Total (R$)']
         st.dataframe(
             df_dist.style.format({'Valor Total (R$)': brl}),
-            use_container_width=True, hide_index=True
+            width="stretch", hide_index=True
         )
 
         st.divider()
@@ -2231,7 +2336,7 @@ elif menu == "🔬 Qualidade dos Dados":
                 alt.Tooltip('Volume (R$):Q', format=',.2f'),
             ]
         ).properties(height=220, title='Volume de Operações por Mês')
-        st.altair_chart(bar_ops, use_container_width=True)
+        st.altair_chart(bar_ops, width="stretch")
 
         st.divider()
         st.subheader("Ativos Não Mapeados para Ticker B3")
