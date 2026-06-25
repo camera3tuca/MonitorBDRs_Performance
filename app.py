@@ -346,6 +346,7 @@ NOME_PARA_TICKER: dict[str, str] = {
     "HASHDEX NCI CI":       "HASH11",    # ETF Cripto Hashdex
     "HASHDEX NCI":          "HASH11",
     "HASHDEX CRYP":         "HASH11",
+    "BITCOIN HASH CI":      "HASH11",    # Bitcoin/Hash Hashdex (variante novo PDF)
     "NASDAQ INC DRN":       "N1DA34",
     "TREND OURO CI":        "GOLD11",    # Trend ETF Ouro
     "SP500 VALUE DRE":      "SPXI11",    # ETF S&P500 Value
@@ -361,6 +362,9 @@ NOME_PARA_TICKER: dict[str, str] = {
     # (o PDF trunca nomes longos — cada truncagem vira uma entrada)
     "ALPHABET DRN":         "GOGL35",    # Alphabet genérico → Cl A
     "ALPHABET DRN ED":      "GOGL35",
+    "ALPHABET DRN A":       "GOGL35",    # Alphabet Cl A (novo formato com classe explícita)
+    "ALPHABET DRN A ED":    "GOGL35",
+    "ALPHABET DRN B":       "GOGL34",    # Alphabet Cl C/B
     "NETFLIX DRN":          "NFLX34",
     "NETFLIX DRN ED":       "NFLX34",
     "BERKSHIRE DRN":        "B2RK34",    # Berkshire genérico → Cl B
@@ -507,6 +511,7 @@ NOME_PARA_TICKER: dict[str, str] = {
     "VERISK ANALY DRN ED":  "V1RS34",
     "MERCADOLIBRE DRN":     "MELI34",   # MercadoLibre
     "MERCADOLIBRE DRN ED":  "MELI34",
+    "MERCADOLIBRE DRN A":   "MELI34",   # variante com classe no novo formato
     "XP INC DR1":           "XPBR31",   # XP Inc
     "INTER CO DR2":         "INBR32",   # Inter & Co
     "JBS N.V. DR2":         "JBSS3",    # JBS N.V.
@@ -683,53 +688,70 @@ def parse_pdf(file_obj) -> list[dict]:
                     continue
 
                 # ── Operações ──
-                # Regex primário: formato histórico Santander (até ~2025)
-                # Grupos: 1=CV, 2=mercado, 3=nome_ativo, 4=obs/flag, 5=qtde, 6=preco, 7=valor, 8=D|C
-                _OP_RE_V1 = r"LISTADO([CV])\s+(VISTA|FRACION[AÁ]RIO)\s+(.*?)\s+([@D#]{1,2}|\s)\s+([\d\.]+)\s+([\d\,]+)\s+([\d\.,]+)\s+(D|C)$"
-                # Regex alternativo: formato 2026 — pode omitir "LISTADO" ou mudar mercado
-                _OP_RE_V2 = r"([CV])\s+(VISTA|FRACION[AÁ]RIO|BALC[AÃ]O|ETF|FII|BDR)\s+(.*?)\s+([@D#]{0,2})\s+([\d\.]+)\s+([\d\,]+)\s+([\d\.,]+)\s+(D|C)$"
+                # Formato v1 (legado até ~2024): "1-BOVESPA LISTADOC VISTA ATIVO FLAG QTD PRECO VALOR D|C"
+                # Grupos: 1=CV, 2=mercado, 3=nome, 4=obs/flag DT, 5=qtd, 6=preco, 7=valor, 8=D|C
+                _OP_RE_V1 = (
+                    r"LISTADO([CV])\s+(VISTA|FRACION[AÁ]RIO)\s+(.*?)\s+"
+                    r"([@D#]{1,2}|\s)\s+([\d\.]+)\s+([\d\,]+)\s+([\d\.,]+)\s+(D|C)$"
+                )
+                # Formato v2 (2025+): "B3 RV LISTADOC VISTA ATIVO QTD PRECO6DEC VALOR D|C"
+                # Preço com 6 casas decimais; sem coluna de flag DT
+                # Grupos: 1=CV, 2=mercado, 3=nome, 4=qtd, 5=preco, 6=valor, 7=D|C
+                _OP_RE_V2 = (
+                    r"B3 RV LISTADO([CV])\s+(VISTA|FRACION[AÁ]RIO)\s+(.*?)\s+"
+                    r"([\d\.]+)\s+([\d\.\,]+)\s+([\d\.,]+)\s+(D|C)$"
+                )
 
-                op = re.search(_OP_RE_V1, line)
-                op_v2 = None
-                if not op and 'LISTADO' not in line:
-                    # Tenta padrão alternativo apenas em linhas sem LISTADO (evita falsos positivos)
-                    op_v2 = re.search(_OP_RE_V2, line)
+                op_v1 = re.search(_OP_RE_V1, line)
+                op_v2 = re.search(_OP_RE_V2, line) if not op_v1 else None
 
-                # Log diagnóstico: linha com LISTADO mas sem match (formato novo desconhecido)
-                if 'LISTADO' in line and not op:
-                    log.warning("Linha com LISTADO não reconhecida (formato novo?) — nota %s: %s",
-                                current_nota['nr_nota'], line.strip())
+                if op_v1:
+                    cv         = op_v1.group(1)
+                    nome_bruto = op_v1.group(3).strip()
+                    obs        = op_v1.group(4).strip()
+                    qty_str    = op_v1.group(5).replace('.', '')
+                    preco      = _br(op_v1.group(6))
+                    valor      = _br(op_v1.group(7))
+                    dc         = op_v1.group(8)
+                    is_dt      = 'D' in obs
+                elif op_v2:
+                    cv         = op_v2.group(1)
+                    nome_bruto = op_v2.group(3).strip()
+                    qty_str    = op_v2.group(4).replace('.', '')
+                    preco      = _br(op_v2.group(5))
+                    valor      = _br(op_v2.group(6))
+                    dc         = op_v2.group(7)
+                    is_dt      = False   # novo formato não tem flag DT na linha
+                else:
+                    # Linha com LISTADO mas sem match — registra para diagnóstico
+                    if 'LISTADO' in line:
+                        log.warning(
+                            "Linha com LISTADO não reconhecida — nota %s: %s",
+                            current_nota['nr_nota'], line.strip()
+                        )
+                    nome_bruto = obs = cv = qty_str = dc = None
+                    preco = valor = 0.0
+                    is_dt = False
 
-                if op or op_v2:
-                    m = op or op_v2
-                    cv    = m.group(1)
-                    nome_bruto = m.group(3).strip()
-                    nome  = normalizar_ativo(nome_bruto)
-                    obs   = m.group(4).strip()
-                    qty_str = m.group(5).replace('.', '')
-
+                if cv is not None:
                     # Valida quantidade
-                    if not qty_str.isdigit() or int(qty_str) <= 0:
+                    if not qty_str or not qty_str.isdigit() or int(qty_str) <= 0:
                         log.warning("Quantidade inválida '%s' na linha: %s", qty_str, line.strip())
-                        continue
-                    qty = int(qty_str)
+                    else:
+                        qty  = int(qty_str)
+                        nome = normalizar_ativo(nome_bruto)
 
-                    preco = _br(m.group(6))
-                    valor = _br(m.group(7))
-                    dc    = m.group(8)
-                    is_dt = 'D' in obs
+                        if nome not in NOME_PARA_TICKER.values() and nome == nome_bruto:
+                            ativos_nao_mapeados.add(nome_bruto)
 
-                    if nome not in NOME_PARA_TICKER.values() and nome == nome_bruto:
-                        ativos_nao_mapeados.add(nome_bruto)
-
-                    current_nota['operacoes'].append({
-                        'data': current_nota['data'],
-                        'nr_nota': current_nota['nr_nota'],
-                        'cv': cv, 'ativo': nome,
-                        'quantidade': qty, 'preco': preco,
-                        'valor': valor, 'dc': dc,
-                        'daytrade': 1 if is_dt else 0,
-                    })
+                        current_nota['operacoes'].append({
+                            'data': current_nota['data'],
+                            'nr_nota': current_nota['nr_nota'],
+                            'cv': cv, 'ativo': nome,
+                            'quantidade': qty, 'preco': preco,
+                            'valor': valor, 'dc': dc,
+                            'daytrade': 1 if is_dt else 0,
+                        })
 
                 # ── Taxas do Resumo Financeiro ──
                 def _taxa(pat: str) -> float:
