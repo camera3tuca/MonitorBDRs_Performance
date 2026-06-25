@@ -740,7 +740,7 @@ def parse_pdf(file_obj) -> list[dict]:
     for nota in notas:
         ops = nota['operacoes']
         if not ops:
-            log.warning("Nota %s sem operações.", nota['nr_nota'])
+            log.debug("Nota %s sem operações (provável nota de custódia/direitos).", nota["nr_nota"])
             continue
 
         total_taxas = (nota['liq'] + nota['emol'] + nota['corretagem'] +
@@ -911,18 +911,52 @@ def calculate_performance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
             if is_dt:
                 key = (data_str, ativo)
                 fila = dt_compras.get(key, deque())
-                lucro_dt    = 0.0
+                lucro_dt     = 0.0
                 qtde_pareada = 0
+                # Quantidades sem par DT — serão tratadas como swing via carteira
+                qtde_sem_par = 0
                 for _ in range(qtde):
                     if fila:
                         pm_dt = fila.popleft()
-                        lucro_dt    += preco_liq - pm_dt
+                        lucro_dt     += preco_liq - pm_dt
                         qtde_pareada += 1
                     else:
-                        _dt_key = f"dt_sem_compra:{data_str}:{ativo}"
-                        if _dt_key not in _ATIVOS_JA_AVISADOS:
-                            _ATIVOS_JA_AVISADOS.add(_dt_key)
-                            log.warning("DT sem compra pareada: %s %s", data_str, ativo)
+                        qtde_sem_par += 1
+
+                if qtde_sem_par > 0:
+                    _dt_key = f"dt_sem_compra:{data_str}:{ativo}"
+                    if _dt_key not in _ATIVOS_JA_AVISADOS:
+                        _ATIVOS_JA_AVISADOS.add(_dt_key)
+                        log.info(
+                            "DT sem compra pareada: %s %s (%d unid.) — tratando como venda swing.",
+                            data_str, ativo, qtde_sem_par,
+                        )
+                    # Fallback: usa preço médio da carteira swing
+                    pos_fb = carteira.get(ativo, {'qtde': 0, 'preco_medio': 0.0, 'custo_total': 0.0})
+                    qtde_valida_fb = min(pos_fb['qtde'], qtde_sem_par)
+                    if qtde_valida_fb > 0:
+                        pm_fb       = pos_fb['preco_medio']
+                        lucro_fb    = (preco_liq - pm_fb) * qtde_valida_fb
+                        retpct_fb   = ((preco_liq / pm_fb) - 1) * 100 if pm_fb > 0 else 0.0
+                        historico.append({
+                            'data':              row['data'],
+                            'mes_ano':           row['data'].strftime('%Y-%m'),
+                            'ano':               row['data'].year,
+                            'ativo':             ativo,
+                            'qtde_vendida':      qtde_valida_fb,
+                            'preco_venda':       preco_liq,
+                            'preco_venda_bruto': preco_bruto,
+                            'preco_medio_compra': pm_fb,
+                            'resultado':         lucro_fb,
+                            'retorno_pct':       retpct_fb,
+                            'custo_base':        pm_fb * qtde_valida_fb,
+                            'daytrade':          False,
+                            'nr_nota':           nr_nota,
+                        })
+                        pos_fb['qtde']       -= qtde_valida_fb
+                        pos_fb['custo_total'] = pos_fb['preco_medio'] * pos_fb['qtde']
+                        if ativo not in carteira:
+                            carteira[ativo] = pos_fb
 
                 if qtde_pareada > 0:
                     custo_dt = sum([preco_liq - lucro_dt / qtde_pareada] * qtde_pareada)
