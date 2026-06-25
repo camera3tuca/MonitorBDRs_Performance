@@ -683,16 +683,30 @@ def parse_pdf(file_obj) -> list[dict]:
                     continue
 
                 # ── Operações ──
-                op = re.search(
-                    r"LISTADO([CV])\s+(VISTA|FRACIONARIO)\s+(.*?)\s+([@D#][@D#]?|\s)\s+([\d\.]+)\s+([\d\,]+)\s+([\d\.,]+)\s+(D|C)$",
-                    line
-                )
-                if op:
-                    cv    = op.group(1)
-                    nome_bruto = op.group(3).strip()
+                # Regex primário: formato histórico Santander (até ~2025)
+                # Grupos: 1=CV, 2=mercado, 3=nome_ativo, 4=obs/flag, 5=qtde, 6=preco, 7=valor, 8=D|C
+                _OP_RE_V1 = r"LISTADO([CV])\s+(VISTA|FRACION[AÁ]RIO)\s+(.*?)\s+([@D#]{1,2}|\s)\s+([\d\.]+)\s+([\d\,]+)\s+([\d\.,]+)\s+(D|C)$"
+                # Regex alternativo: formato 2026 — pode omitir "LISTADO" ou mudar mercado
+                _OP_RE_V2 = r"([CV])\s+(VISTA|FRACION[AÁ]RIO|BALC[AÃ]O|ETF|FII|BDR)\s+(.*?)\s+([@D#]{0,2})\s+([\d\.]+)\s+([\d\,]+)\s+([\d\.,]+)\s+(D|C)$"
+
+                op = re.search(_OP_RE_V1, line)
+                op_v2 = None
+                if not op and 'LISTADO' not in line:
+                    # Tenta padrão alternativo apenas em linhas sem LISTADO (evita falsos positivos)
+                    op_v2 = re.search(_OP_RE_V2, line)
+
+                # Log diagnóstico: linha com LISTADO mas sem match (formato novo desconhecido)
+                if 'LISTADO' in line and not op:
+                    log.warning("Linha com LISTADO não reconhecida (formato novo?) — nota %s: %s",
+                                current_nota['nr_nota'], line.strip())
+
+                if op or op_v2:
+                    m = op or op_v2
+                    cv    = m.group(1)
+                    nome_bruto = m.group(3).strip()
                     nome  = normalizar_ativo(nome_bruto)
-                    obs   = op.group(4).strip()
-                    qty_str = op.group(5).replace('.', '')
+                    obs   = m.group(4).strip()
+                    qty_str = m.group(5).replace('.', '')
 
                     # Valida quantidade
                     if not qty_str.isdigit() or int(qty_str) <= 0:
@@ -700,9 +714,9 @@ def parse_pdf(file_obj) -> list[dict]:
                         continue
                     qty = int(qty_str)
 
-                    preco = _br(op.group(6))
-                    valor = _br(op.group(7))
-                    dc    = op.group(8)
+                    preco = _br(m.group(6))
+                    valor = _br(m.group(7))
+                    dc    = m.group(8)
                     is_dt = 'D' in obs
 
                     if nome not in NOME_PARA_TICKER.values() and nome == nome_bruto:
@@ -740,7 +754,13 @@ def parse_pdf(file_obj) -> list[dict]:
     for nota in notas:
         ops = nota['operacoes']
         if not ops:
-            log.debug("Nota %s sem operações (provável nota de custódia/direitos).", nota["nr_nota"])
+            total_taxas_nota = (nota['liq'] + nota['emol'] + nota['corretagem'] +
+                                nota['iss'] + nota['outras'] + nota['irrf'])
+            if total_taxas_nota > 0:
+                log.warning("Nota %s sem operações mas com taxas R$%.2f — verifique formato do PDF.",
+                            nota['nr_nota'], total_taxas_nota)
+            else:
+                log.debug("Nota %s sem operações (provável nota de custódia/direitos).", nota["nr_nota"])
             continue
 
         total_taxas = (nota['liq'] + nota['emol'] + nota['corretagem'] +
