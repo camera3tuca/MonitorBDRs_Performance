@@ -304,6 +304,8 @@ NOME_PARA_TICKER: dict[str, str] = {
     "VERTEX PHARM DRN":     "V1RT34",
     # ── Indústria / Energia ─────────────────────────────────────────────
     "3M CO DRN":            "M1MM34",
+    "3M DRN":               "M1MM34",   # 3M (truncado sem CO)
+    "3M DRN ED":            "M1MM34",
     "BOEING DRN":           "BOEI34",
     "BOEING DRN ED":        "BOEI34",
     "CATERPILLAR DRN":      "CATP34",
@@ -322,6 +324,10 @@ NOME_PARA_TICKER: dict[str, str] = {
     "SCHLUMBERG DRN":       "S1LB34",
     "TERNIUMSA DRN":        "TXSA34",
     "UPS DRN":              "U1PS34",
+    "TEXAS INC DRN":        "TXNB34",   # Texas Instruments (TXN)
+    "TEXAS INC DRN ED":     "TXNB34",
+    "CHARTER COMM DRN":     "C1HC34",   # Charter Communications (CHTR)
+    "CHARTER COMM DRN ED":  "C1HC34",
     # ── Mineração / Metais ──────────────────────────────────────────────
     "ALBEMARLE CO DRN":     "A1LB34",
     "ALBEMARLE CO DRN ED":  "A1LB34",
@@ -555,7 +561,24 @@ NOME_PARA_TICKER: dict[str, str] = {
 # Conjunto de ativos mapeados para detecção rápida
 _TICKERS_CONHECIDOS = set(NOME_PARA_TICKER.values())
 # Controla ativos já avisados nesta sessão — evita spam de warnings repetidos
-_ATIVOS_JA_AVISADOS: set[str] = set()
+_ATIVOS_JA_AVISADOS: set[str] = set()  # fallback para contextos fora do Streamlit
+
+
+def _ja_avisado(key: str) -> bool:
+    """Verifica (e registra) se um aviso já foi emitido nesta sessão Streamlit."""
+    try:
+        if "_ativos_avisados" not in st.session_state:
+            st.session_state["_ativos_avisados"] = set()
+        if key in st.session_state["_ativos_avisados"]:
+            return True
+        st.session_state["_ativos_avisados"].add(key)
+        return False
+    except Exception:
+        # Fora do contexto Streamlit (testes, scripts) usa o set global
+        if key in _ATIVOS_JA_AVISADOS:
+            return True
+        _ATIVOS_JA_AVISADOS.add(key)
+        return False
 
 
 def normalizar_ativo(nome: str) -> str:
@@ -567,9 +590,8 @@ def normalizar_ativo(nome: str) -> str:
             nome_clean = nome_clean[:-len(suf)].strip()
     ticker = NOME_PARA_TICKER.get(nome_clean, nome_clean)
     if ticker == nome_clean and nome_clean not in _TICKERS_CONHECIDOS:
-        if nome_clean not in _ATIVOS_JA_AVISADOS:
+        if not _ja_avisado(f"ticker:{nome_clean}"):
             log.warning("Ativo não mapeado: '%s' — adicione em NOME_PARA_TICKER", nome_clean)
-            _ATIVOS_JA_AVISADOS.add(nome_clean)
     return ticker
 
 
@@ -778,11 +800,13 @@ def parse_pdf(file_obj) -> list[dict]:
         if not ops:
             total_taxas_nota = (nota['liq'] + nota['emol'] + nota['corretagem'] +
                                 nota['iss'] + nota['outras'] + nota['irrf'])
-            if total_taxas_nota > 0:
+            if total_taxas_nota > 2.0:
+                # Taxa significativa sem operação = provável problema de parse
                 log.warning("Nota %s sem operações mas com taxas R$%.2f — verifique formato do PDF.",
                             nota['nr_nota'], total_taxas_nota)
             else:
-                log.debug("Nota %s sem operações (provável nota de custódia/direitos).", nota["nr_nota"])
+                # Taxa mínima (custódia, IRRF residual, emolumento) — normal
+                log.debug("Nota %s sem operações (custódia/IRRF, taxa R$%.2f).", nota["nr_nota"], total_taxas_nota)
             continue
 
         total_taxas = (nota['liq'] + nota['emol'] + nota['corretagem'] +
@@ -966,9 +990,7 @@ def calculate_performance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                         qtde_sem_par += 1
 
                 if qtde_sem_par > 0:
-                    _dt_key = f"dt_sem_compra:{data_str}:{ativo}"
-                    if _dt_key not in _ATIVOS_JA_AVISADOS:
-                        _ATIVOS_JA_AVISADOS.add(_dt_key)
+                    if not _ja_avisado(f"dt:{data_str}:{ativo}"):
                         log.info(
                             "DT sem compra pareada: %s %s (%d unid.) — tratando como venda swing.",
                             data_str, ativo, qtde_sem_par,
@@ -1044,10 +1066,8 @@ def calculate_performance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                     pos['qtde']       -= qtde_valida
                     pos['custo_total'] = pos['preco_medio'] * pos['qtde']
                 else:
-                    _venda_key = f"venda_sem_pos:{ativo}"
-                    if _venda_key not in _ATIVOS_JA_AVISADOS:
-                        _ATIVOS_JA_AVISADOS.add(_venda_key)
-                        log.warning("Venda de %s sem posição em carteira (primeira ocorrência em %s).", ativo, data_str)
+                    if not _ja_avisado(f"venda_sem_pos:{ativo}"):
+                        log.info("Venda de %s sem posição em carteira (primeira ocorrência em %s) — importe PDFs anteriores.", ativo, data_str)
 
     # Monta carteira atual
     carteira_atual = [
