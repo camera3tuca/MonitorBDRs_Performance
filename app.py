@@ -552,6 +552,18 @@ NOME_PARA_TICKER: dict[str, str] = {
     # ── Outros já no dict mas com variante diferente ──────────────────────
     "CLOUDFLARE DRN ED":    "N2ET34",
     "PAGSEGURO DRN ED":     "PAGS34",
+    # ── Novos (Mar26 / Abr26) ─────────────────────────────────────────────
+    "AURA 360 DR3 ED":      "AURA33",   # Aura Minerals BDR nível 3
+    "COPHILLIPS DRN":       "COPB34",   # ConocoPhillips
+    "EQUINOR ASA DRN":      "EQNR34",   # Equinor
+    "FASTLY INC DRN":       "F2SL34",   # Fastly
+    "LAM RESEARCH DRN ED":  "LRCX34",   # Lam Research
+    "LAM RESEARCH DRN":     "LRCX34",
+    "NEXTERA ENER DRN":     "NEXE34",   # NextEra Energy
+    "OCCIDENT PTR DRN":     "OCCP34",   # Occidental Petroleum
+    "OCCIDENT PTR DRN ED":  "OCCP34",
+    "POTASSIO BR DR1":      "K2PO34",   # Potássio do Brasil DR1
+    "RAYTHEONTECH DRN":     "RTXB34",   # Raytheon Technologies (RTX Corp)
 }
 
 # Variantes com sufixo " ED" automáticas já cobertas acima individualmente.
@@ -716,12 +728,13 @@ def parse_pdf(file_obj) -> list[dict]:
                     r"LISTADO([CV])\s+(VISTA|FRACION[AÁ]RIO)\s+(.*?)\s+"
                     r"([@D#]{1,2}|\s)\s+([\d\.]+)\s+([\d\,]+)\s+([\d\.,]+)\s+(D|C)$"
                 )
-                # Formato v2 (2025+): "B3 RV LISTADOC VISTA ATIVO QTD PRECO6DEC VALOR D|C"
-                # Preço com 6 casas decimais; sem coluna de flag DT
-                # Grupos: 1=CV, 2=mercado, 3=nome, 4=qtd, 5=preco, 6=valor, 7=D|C
+                # Formato v2 (2025+): "B3 RV LISTADOC VISTA ATIVO FLAG QTD PRECO6DEC VALOR D|C"
+                # Variantes: LISTADOC/LISTADOV (Jan/Fev26) e LISTADCO/LISTADVO (Mar26+)
+                # C/V está em grupo 1 (LISTADOC) OU grupo 2 (LISTADCO)
+                # Grupos: 1=CV(OC/OV), 2=CV(CO/VO), 3=mercado, 4=nome, 5=obs/flag, 6=qtd, 7=preco, 8=valor, 9=D|C
                 _OP_RE_V2 = (
-                    r"B3 RV LISTADO([CV])\s+(VISTA|FRACION[AÁ]RIO)\s+(.*?)\s+"
-                    r"([\d\.]+)\s+([\d\.\,]+)\s+([\d\.,]+)\s+(D|C)$"
+                    r"B3 RV LISTAD(?:O([CV])|([CV])O)\s+(VISTA|FRACION[AÁ]RIO)\s+(.*?)\s+"
+                    r"([@D#AT]{1,2}|)\s*([\d\.]+)\s+([\d\.\,]+)\s+([\d\.,]+)\s+(D|C)$"
                 )
 
                 op_v1 = re.search(_OP_RE_V1, line)
@@ -737,13 +750,14 @@ def parse_pdf(file_obj) -> list[dict]:
                     dc         = op_v1.group(8)
                     is_dt      = 'D' in obs
                 elif op_v2:
-                    cv         = op_v2.group(1)
-                    nome_bruto = op_v2.group(3).strip()
-                    qty_str    = op_v2.group(4).replace('.', '')
-                    preco      = _br(op_v2.group(5))
-                    valor      = _br(op_v2.group(6))
-                    dc         = op_v2.group(7)
-                    is_dt      = False   # novo formato não tem flag DT na linha
+                    cv         = op_v2.group(1) or op_v2.group(2)
+                    nome_bruto = op_v2.group(4).strip()
+                    obs        = op_v2.group(5).strip()
+                    qty_str    = op_v2.group(6).replace('.', '')
+                    preco      = _br(op_v2.group(7))
+                    valor      = _br(op_v2.group(8))
+                    dc         = op_v2.group(9)
+                    is_dt      = 'D' in obs
                 else:
                     # Linha com LISTADO mas sem match — registra para diagnóstico
                     if 'LISTADO' in line:
