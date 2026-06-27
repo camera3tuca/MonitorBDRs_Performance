@@ -564,6 +564,18 @@ NOME_PARA_TICKER: dict[str, str] = {
     "OCCIDENT PTR DRN ED":  "OCCP34",
     "POTASSIO BR DR1":      "K2PO34",   # Potássio do Brasil DR1
     "RAYTHEONTECH DRN":     "RTXB34",   # Raytheon Technologies (RTX Corp)
+    # ── Novos (Mai26) ─────────────────────────────────────────────────────
+    "AMPHENOL COR DRN":     "A2PH34",   # Amphenol
+    "APPLIED DGTL DRN":     "A2PD34",   # Applied Digital
+    "ARISTA NETWO DRN":     "A2NE34",   # Arista Networks
+    "EQUINOR ASA DRN ED":   "EQNR34",   # Equinor (variante ED)
+    "GE VERNOVA DRN":       "G2EV34",   # GE Vernova
+    "HALLIBURTON DRN":      "H1AL34",   # Halliburton
+    "MONOLI POWER DRN":     "M2PW34",   # Monolithic Power Systems
+    "NOKIA CORP DRN":       "NOKI34",   # Nokia
+    "NOKIA CORP DRN ED":    "NOKI34",
+    "POSCO HOLD DRN":       "P2KX34",   # POSCO Holdings
+    "POSCO HOLD DRN ED":    "P2KX34",
 }
 
 # Variantes com sufixo " ED" automáticas já cobertas acima individualmente.
