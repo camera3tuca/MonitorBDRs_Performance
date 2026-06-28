@@ -313,7 +313,78 @@ def metricas(df: pd.DataFrame) -> dict:
         "media_perda": perdas.mean() if len(perdas) else 0.0,
         "maior_ganho": res.max(),
         "maior_perda": res.min(),
+        "expectativa": res.mean(),
     }
+
+
+def max_drawdown(rm: pd.DataFrame) -> float:
+    """Maior rebaixamento (R$) da curva de resultado acumulado."""
+    if rm.empty:
+        return 0.0
+    acum = rm["acumulado"].values
+    pico = -np.inf
+    mdd = 0.0
+    for v in acum:
+        pico = max(pico, v)
+        mdd = min(mdd, v - pico)
+    return mdd
+
+
+def sequencias(df: pd.DataFrame) -> tuple[int, int]:
+    """Maior sequência de trades vencedores e perdedores (em ordem cronológica)."""
+    fch = trades_fechados(df).sort_values(["data_dt", "id"])
+    if fch.empty:
+        return 0, 0
+    melhor = pior = cur_w = cur_l = 0
+    for v in fch["resultado"]:
+        if v > 0:
+            cur_w += 1; cur_l = 0
+        elif v < 0:
+            cur_l += 1; cur_w = 0
+        else:
+            cur_w = cur_l = 0
+        melhor = max(melhor, cur_w)
+        pior = max(pior, cur_l)
+    return melhor, pior
+
+
+def tempo_medio_swing(df: pd.DataFrame):
+    """
+    Estima o tempo médio de permanência das operações de swing (em dias),
+    pareando vendas com compras anteriores por FIFO em cada ticker.
+    Day trades são intradiários (0 dias) e ficam de fora desta média.
+    Retorna (media_dias, lista_de_(qtde, dias)).
+    """
+    from collections import deque, defaultdict
+    d = df[(df["daytrade"] == 0)].dropna(subset=["data_dt"]).sort_values(["data_dt", "id"])
+    filas: dict[str, deque] = defaultdict(deque)
+    total_dias = total_qtd = 0.0
+    duracoes: list[tuple[float, int]] = []
+    for r in d.itertuples():
+        tipo = (r.tipo or "")
+        q = abs(r.quantidade or 0)
+        if q <= 0:
+            continue
+        if tipo.startswith("Compra"):
+            filas[r.ticker].append([r.data_dt, q])
+        elif tipo.startswith("Venda"):
+            fila = filas[r.ticker]
+            rem = q
+            while rem > 0 and fila:
+                bdate, bq = fila[0]
+                m = min(rem, bq)
+                dias = max((r.data_dt - bdate).days, 0)
+                total_dias += m * dias
+                total_qtd += m
+                duracoes.append((m, dias))
+                bq -= m
+                rem -= m
+                if bq <= 0:
+                    fila.popleft()
+                else:
+                    fila[0][1] = bq
+    media = total_dias / total_qtd if total_qtd else 0.0
+    return media, duracoes
 
 
 # ─────────────────────────────────────────────
@@ -351,6 +422,19 @@ menu = st.radio(
      "⚡ Day Trade vs Swing", "🧮 Métricas", "📋 Operações", "📥 Importar"],
     horizontal=True, label_visibility="collapsed",
 )
+
+# ── Filtro global de período (afeta todas as páginas analíticas) ──
+meses_disp = sorted(df_all["periodo"].unique()) if not df_all.empty else []
+if len(meses_disp) > 1 and menu != "📥 Importar":
+    fc1, fc2 = st.columns([3, 1])
+    with fc1:
+        ini, fim = st.select_slider(
+            "Período", options=meses_disp,
+            value=(meses_disp[0], meses_disp[-1]), label_visibility="collapsed",
+        )
+    df_all = df_all[(df_all["periodo"] >= ini) & (df_all["periodo"] <= fim)]
+    if (ini, fim) != (meses_disp[0], meses_disp[-1]):
+        fc2.caption(f"📅 {ini} → {fim}")
 st.markdown("<hr style='margin-top:.3rem'>", unsafe_allow_html=True)
 
 
@@ -484,6 +568,8 @@ elif menu == "💼 Por Ativo":
                 .map(color_result, subset=["Swing", "Day Trade", "Proventos", "Total"]),
             width="stretch", hide_index=True,
         )
+        st.download_button("⬇️ Baixar CSV", disp.to_csv(index=False).encode("utf-8"),
+                           "resultado_por_ativo.csv", "text/csv")
 
 
 # ─────────────────────────────────────────────
@@ -545,6 +631,15 @@ elif menu == "🧮 Métricas":
         st.info("Nenhum dado carregado.")
     else:
         m = metricas(df_all)
+        rm = resumo_mensal(df_all)
+        melhor_seq, pior_seq = sequencias(df_all)
+        mdd = max_drawdown(rm)
+        tmedio, duracoes = tempo_medio_swing(df_all)
+        fch = trades_fechados(df_all)
+        dt_f = fch[fch["res_daytrade"] != 0]["resultado"]
+        sw_f = fch[fch["res_normal"] != 0]["resultado"]
+
+        st.subheader("Estatística Geral")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Win Rate", fmt_pct(m["win_rate"], sign=False))
         c2.metric("Trades Fechados", str(m["trades"]))
@@ -552,18 +647,40 @@ elif menu == "🧮 Métricas":
         c4.metric("Fator de Lucro", f"{m['fator_lucro']:.2f}" if m["fator_lucro"] else "N/A")
 
         c5, c6, c7, c8 = st.columns(4)
-        c5.metric("Operações Ganhas", str(m["ganhos"]))
-        c6.metric("Operações Perdidas", str(m["perdas"]))
-        c7.metric("Média de Ganho", fmt_kpi(m["media_ganho"]))
-        c8.metric("Média de Perda", fmt_kpi(m["media_perda"]))
+        c5.metric("Expectativa / Trade", fmt_kpi(m["expectativa"]))
+        c6.metric("Máx. Drawdown", fmt_kpi(mdd))
+        c7.metric("Seq. Vitórias", f"{melhor_seq} trades")
+        c8.metric("Seq. Derrotas", f"{pior_seq} trades")
 
-        c9, c10 = st.columns(2)
-        c9.metric("Maior Ganho", fmt_kpi(m["maior_ganho"]))
-        c10.metric("Maior Perda", fmt_kpi(m["maior_perda"]))
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.subheader("Lucros vs Perdas")
+        c9, c10, c11, c12 = st.columns(4)
+        c9.metric("Operações Ganhas", str(m["ganhos"]))
+        c10.metric("Operações Perdidas", str(m["perdas"]))
+        c11.metric("Média de Ganho", fmt_kpi(m["media_ganho"]))
+        c12.metric("Média de Perda", fmt_kpi(m["media_perda"]))
+
+        c13, c14, c15, c16 = st.columns(4)
+        c13.metric("Maior Ganho", fmt_kpi(m["maior_ganho"]))
+        c14.metric("Maior Perda", fmt_kpi(m["maior_perda"]))
+        c15.metric("Média Ganho Swing", fmt_kpi(sw_f[sw_f > 0].mean() if (sw_f > 0).any() else 0))
+        c16.metric("Média Ganho Day Trade", fmt_kpi(dt_f[dt_f > 0].mean() if (dt_f > 0).any() else 0))
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.subheader("Tempo Médio de Permanência")
+        t1, t2, t3 = st.columns(3)
+        t1.metric("Swing (médio)", f"{tmedio:.1f} dias")
+        if duracoes:
+            qts = np.array([q for q, _ in duracoes])
+            dys = np.array([d for _, d in duracoes])
+            t2.metric("Mais longa", f"{int(dys.max())} dias")
+            curtas = (dys <= 1).sum()
+            t3.metric("Fechadas em ≤1 dia", f"{curtas} lotes")
+        st.caption("Day trades são intradiários (0 dia). O tempo de swing é estimado "
+                   "pareando vendas com compras anteriores por FIFO em cada ativo.")
 
         st.markdown("<hr>", unsafe_allow_html=True)
         st.subheader("Distribuição dos Resultados (trades fechados)")
-        fch = trades_fechados(df_all)
         hist = alt.Chart(fch).mark_bar(color=AZUL).encode(
             x=alt.X("resultado:Q", bin=alt.Bin(maxbins=40), title="Resultado por trade (R$)"),
             y=alt.Y("count():Q", title="Frequência"),
@@ -606,6 +723,8 @@ elif menu == "📋 Operações":
                 .map(color_result, subset=["Resultado"]),
             width="stretch", hide_index=True, height=560,
         )
+        st.download_button("⬇️ Baixar CSV", disp.to_csv(index=False).encode("utf-8"),
+                           "operacoes.csv", "text/csv")
 
 
 # ─────────────────────────────────────────────
