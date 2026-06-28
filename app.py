@@ -255,6 +255,27 @@ def _cache_key(conn) -> int:
     return conn.execute("SELECT COUNT(*) FROM operacoes").fetchone()[0]
 
 
+EXTRATOS_DIR = "extratos_ir"
+
+
+def _ir_cache_key() -> str:
+    files = sorted(glob.glob(os.path.join(EXTRATOS_DIR, "*.pdf")))
+    return "|".join(f"{f}:{os.path.getmtime(f):.0f}" for f in files)
+
+
+@st.cache_data(show_spinner=False)
+def load_ir_oficial(_key: str) -> dict:
+    """Apuração oficial de IR a partir dos Extratos Mensais (extratos_ir/)."""
+    from mycapital import parse_extrato_ir
+    dados: dict[str, dict] = {}
+    for f in sorted(glob.glob(os.path.join(EXTRATOS_DIR, "*.pdf"))):
+        try:
+            dados.update(parse_extrato_ir(f))
+        except Exception as exc:
+            log.warning("Falha ao ler extrato %s: %s", f, exc)
+    return dados
+
+
 # ─────────────────────────────────────────────
 # AGREGAÇÕES E MÉTRICAS
 # ─────────────────────────────────────────────
@@ -776,38 +797,71 @@ elif menu == "📑 IR / Anual":
         )
 
         st.markdown("<hr>", unsafe_allow_html=True)
-        st.subheader("Estimativa de DARF (mensal, com compensação de prejuízos)")
-        ir = calcular_ir(df_all)
-        total_darf = ir["darf"].sum()
-        ult = ir.iloc[-1]
+        ir_oficial = load_ir_oficial(_ir_cache_key())
+        # Mantém apenas os meses presentes no sistema (exclui meses à frente, ex.: junho)
+        periodos_sistema = set(df_all["periodo"].unique())
+        meses_ir = sorted(p for p in ir_oficial if p in periodos_sistema)
 
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("DARF estimado (período)", fmt_kpi(total_darf))
-        k2.metric("Meses com DARF", str(int((ir["darf"] > 0).sum())))
-        k3.metric("Prejuízo Swing a compensar", fmt_kpi(-ult["prej_swing_acum"]))
-        k4.metric("Prejuízo DT a compensar", fmt_kpi(-ult["prej_dt_acum"]))
+        if meses_ir:
+            st.subheader("Apuração Oficial de IR (MyCapital)")
+            linhas = []
+            for p in meses_ir:
+                d = ir_oficial[p]
+                ip = (d.get("imp_pagar_c") or 0) + (d.get("imp_pagar_d") or 0)
+                linhas.append({
+                    "Mês": p,
+                    "Swing (15%)": d.get("res_acoes_c", 0.0),
+                    "Day Trade (20%)": d.get("res_acoes_d", 0.0),
+                    "Prej. Swing a compensar": d.get("prej_compensar_c", 0.0),
+                    "Prej. DT a compensar": d.get("prej_compensar_d", 0.0),
+                    "Imposto a pagar": ip,
+                })
+            irv = pd.DataFrame(linhas)
+            ult = irv.iloc[-1]
+            imp_total = irv["Imposto a pagar"].sum()
 
-        irv = ir[["periodo", "normal", "daytrade", "darf_swing", "darf_dt", "darf",
-                  "prej_swing_acum", "prej_dt_acum"]].copy()
-        irv.columns = ["Mês", "Swing", "Day Trade", "DARF Swing (15%)", "DARF DT (20%)",
-                       "DARF Total", "Prej. Swing acum.", "Prej. DT acum."]
-        st.dataframe(
-            irv.style
-               .format({c: brl for c in irv.columns if c != "Mês"})
-               .map(color_result, subset=["Swing", "Day Trade"]),
-            width="stretch", hide_index=True,
-        )
-        st.download_button("⬇️ Baixar CSV (IR)", irv.to_csv(index=False).encode("utf-8"),
-                           "resumo_ir.csv", "text/csv")
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Imposto a pagar (período)", fmt_kpi(imp_total))
+            k2.metric("Prej. Swing a compensar", fmt_kpi(ult["Prej. Swing a compensar"]))
+            k3.metric("Prej. Day Trade a compensar", fmt_kpi(ult["Prej. DT a compensar"]))
+            k4.metric("Posição em", ult["Mês"])
 
-        st.markdown(
-            "<div style='background:#161d30;border:1px solid #243049;border-left:4px solid #f59e0b;"
-            "border-radius:10px;padding:12px 16px;margin-top:10px;font-size:.84rem;color:#cbd5e1'>"
-            "⚠️ <b>Estimativa</b> para planejamento. Considera swing a 15% e day trade a 20% "
-            "com compensação de prejuízos em buckets separados. <b>Não</b> considera a isenção "
-            "de R$20.000/mês em vendas de ações, IRRF retido na fonte, nem regras específicas de "
-            "FII. DARF abaixo de R$10 não é recolhido (acumula). Confirme com seu contador."
-            "</div>", unsafe_allow_html=True)
+            st.dataframe(
+                irv.style
+                   .format({c: brl for c in irv.columns if c != "Mês"})
+                   .map(color_result, subset=["Swing (15%)", "Day Trade (20%)"]),
+                width="stretch", hide_index=True,
+            )
+            st.download_button("⬇️ Baixar CSV (IR oficial)", irv.to_csv(index=False).encode("utf-8"),
+                               "ir_oficial.csv", "text/csv")
+            st.markdown(
+                "<div style='background:#161d30;border:1px solid #243049;border-left:4px solid #22c55e;"
+                "border-radius:10px;padding:12px 16px;margin-top:10px;font-size:.84rem;color:#cbd5e1'>"
+                "✅ Valores <b>oficiais</b> do Extrato Mensal de Resultados (MyCapital), com prejuízos "
+                "acumulados reais (inclui histórico anterior). O <b>prejuízo a compensar</b> abate "
+                "ganhos futuros do mesmo tipo (swing 15% / day trade 20%). Sem imposto a pagar enquanto "
+                "os prejuízos acumulados absorverem os ganhos. Meses ainda não importados no sistema "
+                "(ex.: posteriores ao último relatório) ficam de fora."
+                "</div>", unsafe_allow_html=True)
+        else:
+            st.subheader("Estimativa de DARF (mensal)")
+            st.caption("Sem Extrato Mensal de Resultados importado — exibindo estimativa. "
+                       "Envie o Extrato na aba Importar para ver a apuração oficial.")
+            ir = calcular_ir(df_all)
+            ult = ir.iloc[-1]
+            k1, k2, k3 = st.columns(3)
+            k1.metric("DARF estimado (período)", fmt_kpi(ir["darf"].sum()))
+            k2.metric("Prej. Swing a compensar", fmt_kpi(-ult["prej_swing_acum"]))
+            k3.metric("Prej. DT a compensar", fmt_kpi(-ult["prej_dt_acum"]))
+            irv = ir[["periodo", "normal", "daytrade", "darf"]].copy()
+            irv.columns = ["Mês", "Swing", "Day Trade", "DARF estimado"]
+            st.dataframe(
+                irv.style.format({c: brl for c in irv.columns if c != "Mês"})
+                   .map(color_result, subset=["Swing", "Day Trade"]),
+                width="stretch", hide_index=True,
+            )
+            st.caption("⚠️ Estimativa sobre os 12 meses (subestima prejuízo anterior). "
+                       "Não considera isenção de R$20k, IRRF nem regras de FII.")
 
 
 # ─────────────────────────────────────────────
@@ -855,26 +909,47 @@ elif menu == "📋 Operações":
 elif menu == "📥 Importar":
     st.title("Importar Relatórios MyCapital")
     st.markdown(
-        "Envie os relatórios **\"Operações no mês\"** (PDF) exportados do MyCapital. "
-        "Os resultados já vêm apurados e batem com sua contabilidade oficial."
+        "Envie os relatórios **\"Operações no mês\"** (operações/performance) e/ou o "
+        "**\"Extrato Mensal de Resultados\"** (apuração oficial de IR). O tipo é "
+        "detectado automaticamente."
     )
     if msg := st.session_state.pop("import_msg", None):
         st.success(msg)
 
     up = st.file_uploader("Relatórios MyCapital (PDF)", type=["pdf"], accept_multiple_files=True)
     if up:
-        total = 0
+        os.makedirs(EXTRATOS_DIR, exist_ok=True)
+        n_extratos = 0
         for f in up:
-            destino = os.path.join(RELATORIOS_DIR, f.name)
+            conteudo = f.getbuffer()
+            # Detecta o tipo pelo conteúdo da primeira página
+            try:
+                import pdfplumber
+                f.seek(0)
+                with pdfplumber.open(f) as _pdf:
+                    cabecalho = _pdf.pages[0].extract_text() or ""
+            except Exception:
+                cabecalho = ""
+            eh_extrato = "Extrato Mensal de Resultados" in cabecalho
+
+            destino = os.path.join(EXTRATOS_DIR if eh_extrato else RELATORIOS_DIR, f.name)
             with open(destino, "wb") as out:
-                out.write(f.getbuffer())
-            # Evita duplicar: remove registro anterior do mesmo arquivo
-            conn.execute("DELETE FROM operacoes WHERE arquivo=?", (f.name,))
-            conn.execute("DELETE FROM relatorios WHERE nome_arquivo=?", (f.name,))
-            conn.commit()
+                out.write(conteudo)
+            if eh_extrato:
+                n_extratos += 1
+            else:
+                conn.execute("DELETE FROM operacoes WHERE arquivo=?", (f.name,))
+                conn.execute("DELETE FROM relatorios WHERE nome_arquivo=?", (f.name,))
+                conn.commit()
         n, novos = processar_relatorios(conn)
         load_ops.clear()
-        st.success(f"{len(novos)} relatório(s) processado(s) · {n} operações importadas.")
+        load_ir_oficial.clear()
+        partes = []
+        if novos:
+            partes.append(f"{len(novos)} relatório(s) de operações · {n} operações")
+        if n_extratos:
+            partes.append(f"{n_extratos} extrato(s) de IR")
+        st.success("Importado: " + (" · ".join(partes) if partes else "nada novo") + ".")
         st.rerun()
 
     st.markdown("<hr>", unsafe_allow_html=True)
