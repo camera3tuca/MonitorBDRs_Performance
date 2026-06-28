@@ -3,4 +3,3 @@ pandas
 pdfplumber
 altair
 numpy
-openpyxl
