@@ -588,6 +588,32 @@ _TICKERS_CONHECIDOS = set(NOME_PARA_TICKER.values())
 _ATIVOS_JA_AVISADOS: set[str] = set()  # fallback para contextos fora do Streamlit
 
 
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+def carregar_universo_b3() -> set[str]:
+    """Universo de tickers da B3 (cacheado por sessão/disco). Nunca falha."""
+    try:
+        from b3_tickers import carregar_tickers_b3
+        return carregar_tickers_b3()
+    except Exception as exc:
+        log.warning("Não foi possível carregar universo B3: %s", exc)
+        return set()
+
+
+def validar_mapeamento_b3() -> list[str]:
+    """Valida NOME_PARA_TICKER contra o universo B3. Avisa uma vez por sessão."""
+    try:
+        from b3_tickers import validar_mapeamento
+        universo = carregar_universo_b3()
+        invalidos = validar_mapeamento(NOME_PARA_TICKER, universo)
+        for tk in invalidos:
+            if not _ja_avisado(f"b3_invalido:{tk}"):
+                log.warning("Ticker '%s' não consta no universo B3 — verifique o mapeamento.", tk)
+        return invalidos
+    except Exception as exc:
+        log.debug("Validação de mapeamento B3 indisponível: %s", exc)
+        return []
+
+
 def _ja_avisado(key: str) -> bool:
     """Verifica (e registra) se um aviso já foi emitido nesta sessão Streamlit."""
     try:
@@ -2410,6 +2436,36 @@ elif menu == "🔬 Qualidade dos Dados":
                 st.warning(f"**{len(avisos)} aviso(s):**")
                 for a in avisos:
                     st.markdown(f"• 🟡 {a['mensagem']}")
+
+        st.divider()
+        st.subheader("Validação de Tickers contra a B3")
+        universo_b3 = carregar_universo_b3()
+        if len(universo_b3) < 100:
+            st.info(
+                "Universo de tickers da B3 indisponível no momento "
+                "(sem rede ou fonte fora do ar). Validação ignorada — "
+                f"{len(NOME_PARA_TICKER)} mapeamentos locais em uso."
+            )
+        else:
+            invalidos = validar_mapeamento_b3()
+            tickers_usados = sorted(set(df['ativo'].unique()))
+            usados_invalidos = [t for t in tickers_usados if t not in universo_b3]
+            cA, cB = st.columns(2)
+            cA.metric("Universo B3 carregado", f"{len(universo_b3):,}".replace(",", "."))
+            cB.metric("Tickers mapeados inválidos", str(len(invalidos)))
+            if invalidos:
+                st.warning(
+                    "**Tickers no mapa que não constam na B3** "
+                    "(possível código incorreto): "
+                    + ", ".join(f"`{t}`" for t in invalidos)
+                )
+            if usados_invalidos:
+                st.error(
+                    "**Tickers presentes nas suas operações sem correspondência na B3:** "
+                    + ", ".join(f"`{t}`" for t in usados_invalidos)
+                )
+            if not invalidos and not usados_invalidos:
+                st.success("✅ Todos os tickers mapeados e em uso existem na B3.")
 
         st.divider()
         st.subheader("Resumo Estatístico das Operações")

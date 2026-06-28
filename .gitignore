@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 carteira.db
 *.db
+b3_tickers_cache.json
