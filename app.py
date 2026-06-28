@@ -37,7 +37,7 @@ st.set_page_config(
     page_title="MonitorBDRs · Performance",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 RELATORIOS_DIR = "notas_pdf"          # pasta onde ficam os PDFs MyCapital
@@ -51,27 +51,50 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background-color: #0f1117; color: #e2e8f0; }
-    .main .block-container { padding: 1.5rem 1.25rem 3rem 1.25rem !important; max-width: 100% !important; }
-    [data-testid="stSidebar"] { background-color: #161b27 !important; border-right: 1px solid #1e2535; }
-    [data-testid="stSidebar"] .stSelectbox label,
-    [data-testid="stSidebar"] p, [data-testid="stSidebar"] span { color: #94a3b8 !important; }
-    [data-testid="metric-container"] {
-        background: linear-gradient(135deg, #1a2035 0%, #1e2535 100%);
-        border: 1px solid #2a3548; border-radius: 14px; padding: 18px 16px 14px 16px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.35); min-height: 100px;
-        display: flex; flex-direction: column; justify-content: center;
+    .stApp { background-color: #0b0e16; color: #e2e8f0; }
+    .main .block-container { padding: 1.25rem 1.5rem 3rem 1.5rem !important; max-width: 1500px !important; }
+
+    /* ── Esconde a sidebar e seu botão (navegação fica no topo) ── */
+    [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+
+    /* ── KPI cards ── */
+    [data-testid="stMetric"] {
+        background: linear-gradient(150deg, #161d30 0%, #131a2a 100%);
+        border: 1px solid #243049; border-radius: 16px; padding: 14px 18px 12px 18px;
+        box-shadow: 0 6px 24px rgba(0,0,0,0.30);
+        overflow: visible !important; min-height: 104px;
+        display: flex !important; flex-direction: column; justify-content: center;
     }
-    [data-testid="metric-container"] label {
-        color: #64748b !important; font-size: 0.7rem !important; font-weight: 600 !important;
-        letter-spacing: 0.09em !important; text-transform: uppercase !important;
-        white-space: normal !important; line-height: 1.3 !important;
+    [data-testid="stMetric"] > div { overflow: visible !important; }
+    [data-testid="stMetricLabel"] { overflow: visible !important; }
+    [data-testid="stMetricLabel"] p {
+        color: #7c8aa5 !important; font-size: 0.68rem !important; font-weight: 600 !important;
+        letter-spacing: 0.07em !important; text-transform: uppercase !important;
+        white-space: normal !important; overflow: visible !important; line-height: 1.25 !important;
     }
-    [data-testid="metric-container"] [data-testid="stMetricValue"] {
-        color: #f1f5f9 !important; font-family: 'JetBrains Mono', monospace !important;
-        font-size: 1.05rem !important; font-weight: 700 !important; white-space: normal !important;
-        word-break: break-all !important; overflow-wrap: anywhere !important; line-height: 1.4 !important;
+    [data-testid="stMetricValue"] {
+        color: #f8fafc !important; font-family: 'JetBrains Mono', monospace !important;
+        font-size: 1.35rem !important; font-weight: 700 !important;
+        white-space: nowrap !important; overflow: visible !important;
+        text-overflow: clip !important; line-height: 1.35 !important;
     }
+    [data-testid="stMetricValue"] > div { overflow: visible !important; text-overflow: clip !important; }
+    [data-testid="stMetricDelta"] { font-size: 0.78rem !important; }
+
+    /* ── Navegação de topo (st.radio horizontal estilizado como pills) ── */
+    div[role="radiogroup"] { gap: 6px !important; flex-wrap: wrap !important; }
+    div[role="radiogroup"] label {
+        background: #131a2a !important; border: 1px solid #243049 !important;
+        border-radius: 10px !important; padding: 7px 14px !important; margin: 0 !important;
+        transition: all .15s ease; cursor: pointer;
+    }
+    div[role="radiogroup"] label:hover { border-color: #3b82f6 !important; background: #18223a !important; }
+    div[role="radiogroup"] label[data-baseweb] > div:first-child { display: none !important; }
+    div[role="radiogroup"] label p { color: #cbd5e1 !important; font-size: 0.86rem !important; font-weight: 600 !important; }
+    div[role="radiogroup"] label:has(input:checked) {
+        background: linear-gradient(135deg, #2563eb, #1d4ed8) !important; border-color: #2563eb !important;
+    }
+    div[role="radiogroup"] label:has(input:checked) p { color: #fff !important; }
     h1 { color: #f1f5f9 !important; font-weight: 700 !important; font-size: 1.7rem !important;
          letter-spacing: -0.02em; margin-bottom: 0.25rem !important; }
     h2 { color: #cbd5e1 !important; font-weight: 600 !important; font-size: 1.15rem !important; }
@@ -142,7 +165,7 @@ def _dark_finance_theme():
         "title": {"color": "#cbd5e1", "font": "Inter"},
     }}
 
-VERDE, VERMELHO, AZUL, CINZA = "#10b981", "#ef4444", "#3b82f6", "#64748b"
+VERDE, VERMELHO, AZUL, CINZA = "#22c55e", "#ef4444", "#3b82f6", "#64748b"
 
 
 # ─────────────────────────────────────────────
@@ -306,38 +329,29 @@ df_all = load_ops(conn, _cache_key(conn))
 
 
 # ─────────────────────────────────────────────
-# SIDEBAR
+# CABEÇALHO + NAVEGAÇÃO DE TOPO
 # ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### 📊 MonitorBDRs")
-    st.caption("Fonte: relatórios MyCapital")
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    menu = st.selectbox(
-        "Navegação",
-        ["🏠 Visão Geral", "📈 Performance Mensal", "💼 Por Ativo",
-         "⚡ Day Trade vs Swing", "🧮 Métricas", "📋 Operações", "📥 Importar"],
-        label_visibility="collapsed",
-    )
-    st.markdown("<hr>", unsafe_allow_html=True)
-
+hcol1, hcol2 = st.columns([3, 2])
+with hcol1:
+    st.markdown("## 📊 MonitorBDRs · Performance")
+with hcol2:
     if not df_all.empty:
-        rm = resumo_mensal(df_all)
-        liq = rm["total"].sum()
-        cor = "badge-pos" if liq >= 0 else "badge-neg"
-        st.markdown(f"**{len(df_all)}** operações · **{df_all['periodo'].nunique()}** meses")
-        st.markdown(f"Resultado acumulado<br><span class='{cor}'>{brl(liq)}</span>",
-                    unsafe_allow_html=True)
-    else:
-        st.caption("Nenhum dado carregado.")
+        liq = resumo_mensal(df_all)["total"].sum()
+        cor = "#22c55e" if liq >= 0 else "#ef4444"
+        st.markdown(
+            f"<div style='text-align:right;padding-top:14px'>"
+            f"<span style='color:#7c8aa5;font-size:.78rem'>"
+            f"{len(df_all)} operações · {df_all['periodo'].nunique()} meses · acumulado </span>"
+            f"<span style='color:{cor};font-weight:700;font-family:JetBrains Mono,monospace'>{brl(liq)}</span>"
+            f"</div>", unsafe_allow_html=True)
 
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.caption("Resultados conforme apuração MyCapital (líquidos de taxas).")
-
-
-def kpi_delta(valor):
-    """Texto de delta colorido para st.metric."""
-    return ("normal" if valor >= 0 else "inverse")
+menu = st.radio(
+    "Navegação",
+    ["🏠 Visão Geral", "📈 Performance Mensal", "💼 Por Ativo",
+     "⚡ Day Trade vs Swing", "🧮 Métricas", "📋 Operações", "📥 Importar"],
+    horizontal=True, label_visibility="collapsed",
+)
+st.markdown("<hr style='margin-top:.3rem'>", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
