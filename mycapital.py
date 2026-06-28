@@ -168,6 +168,111 @@ def parse_mycapital_ops(file_obj) -> list[dict]:
     return ops
 
 
+# ─────────────────────────────────────────────
+# EXTRATO MENSAL DE RESULTADOS (apuração oficial de IR)
+# ─────────────────────────────────────────────
+_MESES_NUM = {
+    "Janeiro": 1, "Fevereiro": 2, "Março": 3, "Marco": 3, "Abril": 4,
+    "Maio": 5, "Junho": 6, "Julho": 7, "Agosto": 8, "Setembro": 9,
+    "Outubro": 10, "Novembro": 11, "Dezembro": 12,
+}
+# Rótulos das linhas do Extrato → chave interna
+_EXTRATO_ROWS = {
+    "Alienações": "alienacoes",
+    "01-Mercado": "res_acoes",
+    "14-RESULTADO": "res_liquido",
+    "15-Resultado": "neg_anterior",
+    "17-Prejuízo": "prej_compensar",
+    "19-IMPOSTO": "imp_devido",
+    "25-Imposto": "imp_pagar",
+}
+_RE_ANO = re.compile(r"Ano:\s*(\d{4})")
+
+
+def parse_extrato_ir(file_obj) -> dict:
+    """
+    Lê o "Extrato Mensal de Resultados" (apuração oficial de IR do MyCapital)
+    e devolve, por período YYYY-MM, os valores oficiais separados em Comuns
+    (swing, 15%) e Day Trade (20%):
+
+        {"2026-05": {
+            "res_acoes_c", "res_acoes_d",          # resultado do mês
+            "prej_compensar_c", "prej_compensar_d",# prejuízo a compensar (acum.)
+            "imp_pagar_c", "imp_pagar_d",          # imposto a pagar
+            "alienacoes",                          # vendas à vista no mês
+        }, ...}
+
+    A tabela é rotacionada (vários meses lado a lado); o parsing usa as
+    posições-x das colunas (Comuns / Day Trade de cada mês) e a posição-y
+    de cada linha rotulada.
+    """
+    numre = re.compile(r"^\(?[\d.]+,\d{2}\)?$")
+    ano = None
+    dados: dict[str, dict] = {}
+
+    with pdfplumber.open(file_obj) as pdf:
+        for page in pdf.pages:
+            ws = page.extract_words()
+            if ano is None:
+                txt = page.extract_text() or ""
+                ma = _RE_ANO.search(txt)
+                if ma:
+                    ano = ma.group(1)
+
+            # Colunas: pares (Comuns / Day Trade) por mês, ordenados por x
+            comuns = sorted((w["x0"] + w["x1"]) / 2 for w in ws if w["text"] == "Comuns")
+            days = [w for w in ws if w["text"] == "Day" and w["top"] < 90]
+            trades = [w for w in ws if w["text"] == "Trade" and w["top"] < 90]
+            dts = sorted(
+                (d["x0"] + t["x1"]) / 2
+                for d in days for t in trades
+                if abs(d["top"] - t["top"]) < 2 and 0 < t["x0"] - d["x1"] < 6
+            )
+            meses = sorted(
+                ((w["x0"] + w["x1"]) / 2, w["text"]) for w in ws
+                if w["text"] in _MESES_NUM and w["top"] < 80
+            )
+            nomes = [m[1] for m in meses]
+            n = min(len(comuns), len(dts), len(nomes))
+            cols = []
+            for i in range(n):
+                cols.append((nomes[i], "c", comuns[i]))
+                cols.append((nomes[i], "d", dts[i]))
+
+            # Linhas rotuladas → top
+            rowtops: dict[str, float] = {}
+            for w in ws:
+                for pref, key in _EXTRATO_ROWS.items():
+                    if w["text"].startswith(pref) and key not in rowtops:
+                        rowtops[key] = w["top"]
+
+            if not cols or not rowtops:
+                continue
+
+            for w in ws:
+                if not numre.match(w["text"]):
+                    continue
+                c = (w["x0"] + w["x1"]) / 2
+                rk = min(rowtops.items(), key=lambda kv: abs(kv[1] - w["top"]))
+                if abs(rk[1] - w["top"]) > 4:
+                    continue
+                col = min(cols, key=lambda cc: abs(cc[2] - c))
+                if abs(col[2] - c) > 55:
+                    continue
+                mes, tipo, _ = col
+                if not ano:
+                    continue
+                periodo = f"{ano}-{_MESES_NUM[mes]:02d}"
+                d = dados.setdefault(periodo, {})
+                key = rk[0]
+                if key == "alienacoes":
+                    d["alienacoes"] = _num(w["text"])
+                else:
+                    d[f"{key}_{tipo}"] = _num(w["text"])
+
+    return dados
+
+
 def parse_mycapital(file_obj) -> dict:
     """
     Lê um relatório MyCapital "Operações no mês" e devolve:
