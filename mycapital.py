@@ -62,6 +62,112 @@ def _num(s: str) -> float:
     return -v if neg else v
 
 
+# ─────────────────────────────────────────────
+# EXTRAÇÃO OPERAÇÃO-A-OPERAÇÃO (máximo detalhe)
+# ─────────────────────────────────────────────
+# Faixas de coluna (centro-x da palavra) calibradas pelos cabeçalhos do
+# relatório. As 3 últimas colunas são o resultado apurado de cada linha.
+_COL_X = [
+    ("data",      0,   55),
+    ("mov",      55,  170),
+    ("op_qtd",  170,  225),
+    ("op_preco",225,  276),
+    ("op_valor",276,  311),
+    ("cu_preco",311,  366),
+    ("cu_valor",366,  405),
+    ("abertura",405,  465),
+    ("baixa",   465,  511),
+    ("sa_qtd",  511,  566),
+    ("sa_preco",566,  621),
+    ("sa_valor",621,  658),
+    ("daytrade",658,  716),
+    ("normal",  716,  776),
+    ("outros",  776,  860),
+]
+_RE_DATA = re.compile(r"^\d{2}/\d{2}/\d{2}$")
+
+
+def _col_of(xc: float) -> str | None:
+    for nome, a, b in _COL_X:
+        if a <= xc < b:
+            return nome
+    return None
+
+
+def parse_mycapital_ops(file_obj) -> list[dict]:
+    """
+    Extrai CADA operação do relatório com seu resultado apurado, usando a
+    posição-x das palavras (robusto a colunas vazias).
+
+    Retorna lista de dicts:
+        {periodo, mercado, ticker, data, tipo, daytrade(bool),
+         quantidade, preco, valor, res_daytrade, res_normal, res_outros}
+
+    O somatório de res_* reproduz exatamente os totais do relatório.
+    """
+    ops: list[dict] = []
+    periodo = None
+    mercado_atual = None
+    ticker_atual = None
+
+    with pdfplumber.open(file_obj) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words()
+            # Agrupa palavras em linhas pela coordenada vertical (~3px)
+            linhas: dict[int, list] = {}
+            for w in words:
+                linhas.setdefault(round(w["top"] / 3), []).append(w)
+
+            for chave in sorted(linhas):
+                ws = sorted(linhas[chave], key=lambda w: w["x0"])
+                texto = " ".join(w["text"] for w in ws)
+
+                if periodo is None:
+                    mp = _RE_PERIODO.search(texto)
+                    if mp:
+                        periodo = f"{mp.group(2)}-{mp.group(1)}"
+
+                if texto.strip() in _MERCADOS:
+                    mercado_atual = texto.strip()
+                    continue
+
+                mh = _RE_ATIVO.match(texto.strip())
+                if mh and not texto.startswith(("Total", "Data", "Mercado")):
+                    ticker_atual = mh.group(1)
+                    continue
+
+                # Distribui as palavras em colunas por x
+                cells: dict[str, list] = {}
+                for w in ws:
+                    c = _col_of((w["x0"] + w["x1"]) / 2)
+                    if c:
+                        cells.setdefault(c, []).append(w["text"])
+
+                data = cells.get("data", [])
+                if not (data and _RE_DATA.match(data[0])):
+                    continue
+                if "Saldo Anterior" in texto:
+                    continue
+
+                mov = " ".join(cells.get("mov", []))
+                ops.append({
+                    "periodo": periodo,
+                    "mercado": mercado_atual,
+                    "ticker": ticker_atual,
+                    "data": data[0],
+                    "tipo": mov,
+                    "daytrade": "DayTrade" in mov,
+                    "quantidade": _num(" ".join(cells.get("op_qtd", []))),
+                    "preco": _num(" ".join(cells.get("op_preco", []))),
+                    "valor": _num(" ".join(cells.get("op_valor", []))),
+                    "res_daytrade": _num(" ".join(cells.get("daytrade", []))),
+                    "res_normal": _num(" ".join(cells.get("normal", []))),
+                    "res_outros": _num(" ".join(cells.get("outros", []))),
+                })
+
+    return ops
+
+
 def parse_mycapital(file_obj) -> dict:
     """
     Lê um relatório MyCapital "Operações no mês" e devolve:
