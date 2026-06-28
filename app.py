@@ -304,6 +304,8 @@ NOME_PARA_TICKER: dict[str, str] = {
     "VERTEX PHARM DRN":     "V1RT34",
     # ── Indústria / Energia ─────────────────────────────────────────────
     "3M CO DRN":            "M1MM34",
+    "3M DRN":               "M1MM34",   # 3M (truncado sem CO)
+    "3M DRN ED":            "M1MM34",
     "BOEING DRN":           "BOEI34",
     "BOEING DRN ED":        "BOEI34",
     "CATERPILLAR DRN":      "CATP34",
@@ -322,6 +324,10 @@ NOME_PARA_TICKER: dict[str, str] = {
     "SCHLUMBERG DRN":       "S1LB34",
     "TERNIUMSA DRN":        "TXSA34",
     "UPS DRN":              "U1PS34",
+    "TEXAS INC DRN":        "TXNB34",   # Texas Instruments (TXN)
+    "TEXAS INC DRN ED":     "TXNB34",
+    "CHARTER COMM DRN":     "C1HC34",   # Charter Communications (CHTR)
+    "CHARTER COMM DRN ED":  "C1HC34",
     # ── Mineração / Metais ──────────────────────────────────────────────
     "ALBEMARLE CO DRN":     "A1LB34",
     "ALBEMARLE CO DRN ED":  "A1LB34",
@@ -546,6 +552,30 @@ NOME_PARA_TICKER: dict[str, str] = {
     # ── Outros já no dict mas com variante diferente ──────────────────────
     "CLOUDFLARE DRN ED":    "N2ET34",
     "PAGSEGURO DRN ED":     "PAGS34",
+    # ── Novos (Mar26 / Abr26) ─────────────────────────────────────────────
+    "AURA 360 DR3 ED":      "AURA33",   # Aura Minerals BDR nível 3
+    "COPHILLIPS DRN":       "COPB34",   # ConocoPhillips
+    "EQUINOR ASA DRN":      "EQNR34",   # Equinor
+    "FASTLY INC DRN":       "F2SL34",   # Fastly
+    "LAM RESEARCH DRN ED":  "LRCX34",   # Lam Research
+    "LAM RESEARCH DRN":     "LRCX34",
+    "NEXTERA ENER DRN":     "NEXE34",   # NextEra Energy
+    "OCCIDENT PTR DRN":     "OCCP34",   # Occidental Petroleum
+    "OCCIDENT PTR DRN ED":  "OCCP34",
+    "POTASSIO BR DR1":      "K2PO34",   # Potássio do Brasil DR1
+    "RAYTHEONTECH DRN":     "RTXB34",   # Raytheon Technologies (RTX Corp)
+    # ── Novos (Mai26) ─────────────────────────────────────────────────────
+    "AMPHENOL COR DRN":     "A2PH34",   # Amphenol
+    "APPLIED DGTL DRN":     "A2PD34",   # Applied Digital
+    "ARISTA NETWO DRN":     "A2NE34",   # Arista Networks
+    "EQUINOR ASA DRN ED":   "EQNR34",   # Equinor (variante ED)
+    "GE VERNOVA DRN":       "G2EV34",   # GE Vernova
+    "HALLIBURTON DRN":      "H1AL34",   # Halliburton
+    "MONOLI POWER DRN":     "M2PW34",   # Monolithic Power Systems
+    "NOKIA CORP DRN":       "NOKI34",   # Nokia
+    "NOKIA CORP DRN ED":    "NOKI34",
+    "POSCO HOLD DRN":       "P2KX34",   # POSCO Holdings
+    "POSCO HOLD DRN ED":    "P2KX34",
 }
 
 # Variantes com sufixo " ED" automáticas já cobertas acima individualmente.
@@ -555,7 +585,50 @@ NOME_PARA_TICKER: dict[str, str] = {
 # Conjunto de ativos mapeados para detecção rápida
 _TICKERS_CONHECIDOS = set(NOME_PARA_TICKER.values())
 # Controla ativos já avisados nesta sessão — evita spam de warnings repetidos
-_ATIVOS_JA_AVISADOS: set[str] = set()
+_ATIVOS_JA_AVISADOS: set[str] = set()  # fallback para contextos fora do Streamlit
+
+
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+def carregar_universo_b3() -> set[str]:
+    """Universo de tickers da B3 (cacheado por sessão/disco). Nunca falha."""
+    try:
+        from b3_tickers import carregar_tickers_b3
+        return carregar_tickers_b3()
+    except Exception as exc:
+        log.warning("Não foi possível carregar universo B3: %s", exc)
+        return set()
+
+
+def validar_mapeamento_b3() -> list[str]:
+    """Valida NOME_PARA_TICKER contra o universo B3. Avisa uma vez por sessão."""
+    try:
+        from b3_tickers import validar_mapeamento
+        universo = carregar_universo_b3()
+        invalidos = validar_mapeamento(NOME_PARA_TICKER, universo)
+        for tk in invalidos:
+            if not _ja_avisado(f"b3_invalido:{tk}"):
+                log.warning("Ticker '%s' não consta no universo B3 — verifique o mapeamento.", tk)
+        return invalidos
+    except Exception as exc:
+        log.debug("Validação de mapeamento B3 indisponível: %s", exc)
+        return []
+
+
+def _ja_avisado(key: str) -> bool:
+    """Verifica (e registra) se um aviso já foi emitido nesta sessão Streamlit."""
+    try:
+        if "_ativos_avisados" not in st.session_state:
+            st.session_state["_ativos_avisados"] = set()
+        if key in st.session_state["_ativos_avisados"]:
+            return True
+        st.session_state["_ativos_avisados"].add(key)
+        return False
+    except Exception:
+        # Fora do contexto Streamlit (testes, scripts) usa o set global
+        if key in _ATIVOS_JA_AVISADOS:
+            return True
+        _ATIVOS_JA_AVISADOS.add(key)
+        return False
 
 
 def normalizar_ativo(nome: str) -> str:
@@ -567,9 +640,8 @@ def normalizar_ativo(nome: str) -> str:
             nome_clean = nome_clean[:-len(suf)].strip()
     ticker = NOME_PARA_TICKER.get(nome_clean, nome_clean)
     if ticker == nome_clean and nome_clean not in _TICKERS_CONHECIDOS:
-        if nome_clean not in _ATIVOS_JA_AVISADOS:
+        if not _ja_avisado(f"ticker:{nome_clean}"):
             log.warning("Ativo não mapeado: '%s' — adicione em NOME_PARA_TICKER", nome_clean)
-            _ATIVOS_JA_AVISADOS.add(nome_clean)
     return ticker
 
 
@@ -694,12 +766,13 @@ def parse_pdf(file_obj) -> list[dict]:
                     r"LISTADO([CV])\s+(VISTA|FRACION[AÁ]RIO)\s+(.*?)\s+"
                     r"([@D#]{1,2}|\s)\s+([\d\.]+)\s+([\d\,]+)\s+([\d\.,]+)\s+(D|C)$"
                 )
-                # Formato v2 (2025+): "B3 RV LISTADOC VISTA ATIVO QTD PRECO6DEC VALOR D|C"
-                # Preço com 6 casas decimais; sem coluna de flag DT
-                # Grupos: 1=CV, 2=mercado, 3=nome, 4=qtd, 5=preco, 6=valor, 7=D|C
+                # Formato v2 (2025+): "B3 RV LISTADOC VISTA ATIVO FLAG QTD PRECO6DEC VALOR D|C"
+                # Variantes: LISTADOC/LISTADOV (Jan/Fev26) e LISTADCO/LISTADVO (Mar26+)
+                # C/V está em grupo 1 (LISTADOC) OU grupo 2 (LISTADCO)
+                # Grupos: 1=CV(OC/OV), 2=CV(CO/VO), 3=mercado, 4=nome, 5=obs/flag, 6=qtd, 7=preco, 8=valor, 9=D|C
                 _OP_RE_V2 = (
-                    r"B3 RV LISTADO([CV])\s+(VISTA|FRACION[AÁ]RIO)\s+(.*?)\s+"
-                    r"([\d\.]+)\s+([\d\.\,]+)\s+([\d\.,]+)\s+(D|C)$"
+                    r"B3 RV LISTAD(?:O([CV])|([CV])O)\s+(VISTA|FRACION[AÁ]RIO)\s+(.*?)\s+"
+                    r"([@D#AT]{1,2}|)\s*([\d\.]+)\s+([\d\.\,]+)\s+([\d\.,]+)\s+(D|C)$"
                 )
 
                 op_v1 = re.search(_OP_RE_V1, line)
@@ -715,13 +788,14 @@ def parse_pdf(file_obj) -> list[dict]:
                     dc         = op_v1.group(8)
                     is_dt      = 'D' in obs
                 elif op_v2:
-                    cv         = op_v2.group(1)
-                    nome_bruto = op_v2.group(3).strip()
-                    qty_str    = op_v2.group(4).replace('.', '')
-                    preco      = _br(op_v2.group(5))
-                    valor      = _br(op_v2.group(6))
-                    dc         = op_v2.group(7)
-                    is_dt      = False   # novo formato não tem flag DT na linha
+                    cv         = op_v2.group(1) or op_v2.group(2)
+                    nome_bruto = op_v2.group(4).strip()
+                    obs        = op_v2.group(5).strip()
+                    qty_str    = op_v2.group(6).replace('.', '')
+                    preco      = _br(op_v2.group(7))
+                    valor      = _br(op_v2.group(8))
+                    dc         = op_v2.group(9)
+                    is_dt      = 'D' in obs
                 else:
                     # Linha com LISTADO mas sem match — registra para diagnóstico
                     if 'LISTADO' in line:
@@ -778,11 +852,13 @@ def parse_pdf(file_obj) -> list[dict]:
         if not ops:
             total_taxas_nota = (nota['liq'] + nota['emol'] + nota['corretagem'] +
                                 nota['iss'] + nota['outras'] + nota['irrf'])
-            if total_taxas_nota > 0:
+            if total_taxas_nota > 2.0:
+                # Taxa significativa sem operação = provável problema de parse
                 log.warning("Nota %s sem operações mas com taxas R$%.2f — verifique formato do PDF.",
                             nota['nr_nota'], total_taxas_nota)
             else:
-                log.debug("Nota %s sem operações (provável nota de custódia/direitos).", nota["nr_nota"])
+                # Taxa mínima (custódia, IRRF residual, emolumento) — normal
+                log.debug("Nota %s sem operações (custódia/IRRF, taxa R$%.2f).", nota["nr_nota"], total_taxas_nota)
             continue
 
         total_taxas = (nota['liq'] + nota['emol'] + nota['corretagem'] +
@@ -966,9 +1042,7 @@ def calculate_performance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                         qtde_sem_par += 1
 
                 if qtde_sem_par > 0:
-                    _dt_key = f"dt_sem_compra:{data_str}:{ativo}"
-                    if _dt_key not in _ATIVOS_JA_AVISADOS:
-                        _ATIVOS_JA_AVISADOS.add(_dt_key)
+                    if not _ja_avisado(f"dt:{data_str}:{ativo}"):
                         log.info(
                             "DT sem compra pareada: %s %s (%d unid.) — tratando como venda swing.",
                             data_str, ativo, qtde_sem_par,
@@ -1044,10 +1118,8 @@ def calculate_performance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                     pos['qtde']       -= qtde_valida
                     pos['custo_total'] = pos['preco_medio'] * pos['qtde']
                 else:
-                    _venda_key = f"venda_sem_pos:{ativo}"
-                    if _venda_key not in _ATIVOS_JA_AVISADOS:
-                        _ATIVOS_JA_AVISADOS.add(_venda_key)
-                        log.warning("Venda de %s sem posição em carteira (primeira ocorrência em %s).", ativo, data_str)
+                    if not _ja_avisado(f"venda_sem_pos:{ativo}"):
+                        log.info("Venda de %s sem posição em carteira (primeira ocorrência em %s) — importe PDFs anteriores.", ativo, data_str)
 
     # Monta carteira atual
     carteira_atual = [
@@ -2364,6 +2436,36 @@ elif menu == "🔬 Qualidade dos Dados":
                 st.warning(f"**{len(avisos)} aviso(s):**")
                 for a in avisos:
                     st.markdown(f"• 🟡 {a['mensagem']}")
+
+        st.divider()
+        st.subheader("Validação de Tickers contra a B3")
+        universo_b3 = carregar_universo_b3()
+        if len(universo_b3) < 100:
+            st.info(
+                "Universo de tickers da B3 indisponível no momento "
+                "(sem rede ou fonte fora do ar). Validação ignorada — "
+                f"{len(NOME_PARA_TICKER)} mapeamentos locais em uso."
+            )
+        else:
+            invalidos = validar_mapeamento_b3()
+            tickers_usados = sorted(set(df['ativo'].unique()))
+            usados_invalidos = [t for t in tickers_usados if t not in universo_b3]
+            cA, cB = st.columns(2)
+            cA.metric("Universo B3 carregado", f"{len(universo_b3):,}".replace(",", "."))
+            cB.metric("Tickers mapeados inválidos", str(len(invalidos)))
+            if invalidos:
+                st.warning(
+                    "**Tickers no mapa que não constam na B3** "
+                    "(possível código incorreto): "
+                    + ", ".join(f"`{t}`" for t in invalidos)
+                )
+            if usados_invalidos:
+                st.error(
+                    "**Tickers presentes nas suas operações sem correspondência na B3:** "
+                    + ", ".join(f"`{t}`" for t in usados_invalidos)
+                )
+            if not invalidos and not usados_invalidos:
+                st.success("✅ Todos os tickers mapeados e em uso existem na B3.")
 
         st.divider()
         st.subheader("Resumo Estatístico das Operações")
