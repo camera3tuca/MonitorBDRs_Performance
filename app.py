@@ -217,8 +217,8 @@ NOME_PARA_TICKER: dict[str, str] = {
     "PALO ALTO DRN":        "P1AN34",
     "PAYPAL HLDG DRN":      "PYPL34",
     "PAYPAL HLDG DRN ED":   "PYPL34",
-    "QUALCOMM DRN":         "Q1CO34",
-    "QUALCOMM DRN ED":      "Q1CO34",
+    "QUALCOMM DRN":         "QCOM34",
+    "QUALCOMM DRN ED":      "QCOM34",
     "SALESFORCE DRN":       "C2RM34",
     "SERVICENOW DRN":       "N2OW34",
     "SHOPIFY INC DRN":      "S2HO34",
@@ -366,7 +366,7 @@ NOME_PARA_TICKER: dict[str, str] = {
     "WEIBO CORP DRN ED":    "W2BO34",
     # ── Variantes de nome truncado Santander ─────────────────────────────
     # (o PDF trunca nomes longos — cada truncagem vira uma entrada)
-    "ALPHABET DRN":         "GOGL35",    # Alphabet genérico → Cl A
+    "ALPHABET DRN":         "GOGL34",    # Alphabet genérico → Cl C
     "ALPHABET DRN ED":      "GOGL35",
     "ALPHABET DRN A":       "GOGL35",    # Alphabet Cl A (novo formato com classe explícita)
     "ALPHABET DRN A ED":    "GOGL35",
@@ -389,7 +389,7 @@ NOME_PARA_TICKER: dict[str, str] = {
     "LILLY DRN ED":         "L1LY34",
     "SALESFOR INC DRN":     "C2RM34",   # Salesforce (truncado)
     "SALESFOR INC DRN ED":  "C2RM34",
-    "APPLIED MATE DRN":     "A1PM34",   # Applied Materials (truncado)
+    "APPLIED MATE DRN":     "A1MT34",   # Applied Materials (AMAT)
     "APPLIED MATE DRN ED":  "A1PM34",
     "UBER TECH IN DRN":     "U1BE34",   # Uber (truncado)
     "UBER TECH IN DRN ED":  "U1BE34",
@@ -405,7 +405,7 @@ NOME_PARA_TICKER: dict[str, str] = {
     "ATT INC DRN ED":       "ATTB34",
     "VERIZON DRN":          "VERZ34",   # Verizon Communications
     "VERIZON DRN ED":       "VERZ34",
-    "LUMEN TECH DRN":       "L2TH34",   # Lumen Technologies
+    "LUMEN TECH DRN":       "L1MN34",   # Lumen Technologies (LUMN)
     "LUMEN TECH DRN ED":    "L2TH34",
     # ── Financeiro adicional ──────────────────────────────────────────────
     "UBS GROUP DRN":        "U1BS34",   # UBS Group AG
@@ -417,8 +417,8 @@ NOME_PARA_TICKER: dict[str, str] = {
     "WESTERNUNION DRN":     "W2UN34",   # Western Union
     "WESTERNUNION DRN ED":  "W2UN34",
     # ── Tecnologia adicional ──────────────────────────────────────────────
-    "MARVELL TEC DRN":      "MRVL34",   # Marvell Technology Group
-    "MARVELL TEC DRN ED":   "MRVL34",
+    "MARVELL TEC DRN":      "M2RV34",   # Marvell Technology Group
+    "MARVELL TEC DRN ED":   "M2RV34",
     "FISERV INC DRN":       "F1SV34",   # Fiserv Inc
     "FISERV INC DRN ED":    "F1SV34",
     "PAYPAL HOLD DRN":      "PYPL34",   # PayPal (truncado diferente)
@@ -494,10 +494,10 @@ NOME_PARA_TICKER: dict[str, str] = {
     "FIAGRO SUNO CI":       "SNAG11",
     # ── ETF / Certificados especiais ──────────────────────────────────────
     "GX AI TECH DRE EB":    "XAIG11",   # Global X AI Tech ETF
-    "SOLAR TECH DRN":       "S2OL34",   # Solar Tech (verificar ticker exato)
+    "SOLAR TECH DRN":       "S2ED34",   # Solar/First Solar Tech
     # ── Tecnologia adicional ──────────────────────────────────────────────
-    "CISCO DRN":            "C1SC34",
-    "CISCO DRN ED":         "C1SC34",
+    "CISCO DRN":            "CSCO34",
+    "CISCO DRN ED":         "CSCO34",
     "STRATEGY INC DRN":     "M2ST34",   # MicroStrategy (rebrand → Strategy)
     "STRATEGY INC DRN ED":  "M2ST34",
     "ROBLOX CORP DRN":      "R2OB34",
@@ -508,7 +508,7 @@ NOME_PARA_TICKER: dict[str, str] = {
     "GOPRO DRN ED":         "G2PR34",
     "STRIDE INC DRN":       "S2TR34",   # Stride Inc (educação)
     "STRIDE INC DRN ED":    "S2TR34",
-    "GRUPOCIBEST DRN":      "G2CB34",   # Grupo CI Best
+    "GRUPOCIBEST DRN":      "C2OL34",   # Grupo Cibest (confirmado por preço)
     "GRUPOCIBEST DRN ED":   "G2CB34",
     # ── Financeiro adicional ──────────────────────────────────────────────
     "SCHWAB DRN":           "S1WB34",   # Charles Schwab
@@ -555,27 +555,27 @@ NOME_PARA_TICKER: dict[str, str] = {
     # ── Novos (Mar26 / Abr26) ─────────────────────────────────────────────
     "AURA 360 DR3 ED":      "AURA33",   # Aura Minerals BDR nível 3
     "COPHILLIPS DRN":       "COPB34",   # ConocoPhillips
-    "EQUINOR ASA DRN":      "EQNR34",   # Equinor
-    "FASTLY INC DRN":       "F2SL34",   # Fastly
-    "LAM RESEARCH DRN ED":  "LRCX34",   # Lam Research
-    "LAM RESEARCH DRN":     "LRCX34",
+    "EQUINOR ASA DRN":      "E1QN34",   # Equinor
+    "FASTLY INC DRN":       "F1SL34",   # Fastly
+    "LAM RESEARCH DRN ED":  "L1RC34",   # Lam Research
+    "LAM RESEARCH DRN":     "L1RC34",
     "NEXTERA ENER DRN":     "NEXE34",   # NextEra Energy
     "OCCIDENT PTR DRN":     "OCCP34",   # Occidental Petroleum
     "OCCIDENT PTR DRN ED":  "OCCP34",
     "POTASSIO BR DR1":      "K2PO34",   # Potássio do Brasil DR1
     "RAYTHEONTECH DRN":     "RTXB34",   # Raytheon Technologies (RTX Corp)
     # ── Novos (Mai26) ─────────────────────────────────────────────────────
-    "AMPHENOL COR DRN":     "A2PH34",   # Amphenol
-    "APPLIED DGTL DRN":     "A2PD34",   # Applied Digital
-    "ARISTA NETWO DRN":     "A2NE34",   # Arista Networks
-    "EQUINOR ASA DRN ED":   "EQNR34",   # Equinor (variante ED)
+    "AMPHENOL COR DRN":     "A1PH34",   # Amphenol
+    "APPLIED DGTL DRN":     "A1PL34",   # Applied Digital
+    "ARISTA NETWO DRN":     "A1NE34",   # Arista Networks
+    "EQUINOR ASA DRN ED":   "E1QN34",   # Equinor (variante ED)
     "GE VERNOVA DRN":       "G2EV34",   # GE Vernova
-    "HALLIBURTON DRN":      "H1AL34",   # Halliburton
-    "MONOLI POWER DRN":     "M2PW34",   # Monolithic Power Systems
+    "HALLIBURTON DRN":      "HALI34",   # Halliburton
+    "MONOLI POWER DRN":     "M2PR34",   # Monolithic Power Systems
     "NOKIA CORP DRN":       "NOKI34",   # Nokia
     "NOKIA CORP DRN ED":    "NOKI34",
-    "POSCO HOLD DRN":       "P2KX34",   # POSCO Holdings
-    "POSCO HOLD DRN ED":    "P2KX34",
+    "POSCO HOLD DRN":       "P1KX34",   # POSCO Holdings
+    "POSCO HOLD DRN ED":    "P1KX34",
 }
 
 # Variantes com sufixo " ED" automáticas já cobertas acima individualmente.
