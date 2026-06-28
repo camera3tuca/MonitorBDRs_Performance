@@ -387,6 +387,73 @@ def tempo_medio_swing(df: pd.DataFrame):
     return media, duracoes
 
 
+def resumo_anual(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+    d = df.copy()
+    d["ano"] = d["periodo"].str[:4]
+    g = (d.groupby("ano")
+           .agg(normal=("res_normal", "sum"),
+                daytrade=("res_daytrade", "sum"),
+                outros=("res_outros", "sum"),
+                operacoes=("id", "count"))
+           .reset_index())
+    g["total"] = g["normal"] + g["daytrade"] + g["outros"]
+    return g
+
+
+# Alíquotas (estimativa): swing comum 15%, day trade 20%
+ALIQ_SWING = 0.15
+ALIQ_DT = 0.20
+DARF_MINIMO = 10.0
+
+
+def calcular_ir(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Estimativa de IR mês a mês, com compensação de prejuízos acumulados
+    em dois buckets separados (swing 15% e day trade 20%), como manda a
+    Receita. NÃO considera isenção de R$20k para ações, IRRF retido nem
+    regras específicas de FII — é uma aproximação para planejamento.
+    """
+    rm = resumo_mensal(df)
+    if rm.empty:
+        return pd.DataFrame()
+    prej_sw = prej_dt = 0.0
+    linhas = []
+    for r in rm.itertuples():
+        # ── Swing (15%) ──
+        if r.normal < 0:
+            prej_sw += -r.normal
+            trib_sw, darf_sw = 0.0, 0.0
+        else:
+            comp = min(prej_sw, r.normal)
+            prej_sw -= comp
+            trib_sw = r.normal - comp
+            darf_sw = trib_sw * ALIQ_SWING
+        # ── Day trade (20%) ──
+        if r.daytrade < 0:
+            prej_dt += -r.daytrade
+            trib_dt, darf_dt = 0.0, 0.0
+        else:
+            comp = min(prej_dt, r.daytrade)
+            prej_dt -= comp
+            trib_dt = r.daytrade - comp
+            darf_dt = trib_dt * ALIQ_DT
+        darf = darf_sw + darf_dt
+        linhas.append({
+            "periodo": r.periodo,
+            "normal": r.normal,
+            "daytrade": r.daytrade,
+            "darf_swing": darf_sw,
+            "darf_dt": darf_dt,
+            "darf": darf,
+            "abaixo_minimo": 0 < darf < DARF_MINIMO,
+            "prej_swing_acum": prej_sw,
+            "prej_dt_acum": prej_dt,
+        })
+    return pd.DataFrame(linhas)
+
+
 # ─────────────────────────────────────────────
 # IMPORTAÇÃO AUTOMÁTICA NA INICIALIZAÇÃO
 # ─────────────────────────────────────────────
@@ -419,7 +486,8 @@ with hcol2:
 menu = st.radio(
     "Navegação",
     ["🏠 Visão Geral", "📈 Performance Mensal", "💼 Por Ativo",
-     "⚡ Day Trade vs Swing", "🧮 Métricas", "📋 Operações", "📥 Importar"],
+     "⚡ Day Trade vs Swing", "🧮 Métricas", "📑 IR / Anual",
+     "📋 Operações", "📥 Importar"],
     horizontal=True, label_visibility="collapsed",
 )
 
@@ -686,6 +754,60 @@ elif menu == "🧮 Métricas":
             y=alt.Y("count():Q", title="Frequência"),
             tooltip=[alt.Tooltip("count():Q", title="Trades")])
         st.altair_chart(hist, width="stretch")
+
+
+# ─────────────────────────────────────────────
+# PÁGINA: IR / ANUAL
+# ─────────────────────────────────────────────
+elif menu == "📑 IR / Anual":
+    st.title("Imposto de Renda · Resumo Anual")
+    if df_all.empty:
+        st.info("Nenhum dado carregado.")
+    else:
+        ra = resumo_anual(df_all)
+        st.subheader("Resultado por Ano")
+        disp = ra[["ano", "operacoes", "normal", "daytrade", "outros", "total"]].copy()
+        disp.columns = ["Ano", "Operações", "Swing", "Day Trade", "Proventos", "Total"]
+        st.dataframe(
+            disp.style
+                .format({c: brl for c in ["Swing", "Day Trade", "Proventos", "Total"]})
+                .map(color_result, subset=["Swing", "Day Trade", "Proventos", "Total"]),
+            width="stretch", hide_index=True,
+        )
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.subheader("Estimativa de DARF (mensal, com compensação de prejuízos)")
+        ir = calcular_ir(df_all)
+        total_darf = ir["darf"].sum()
+        ult = ir.iloc[-1]
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("DARF estimado (período)", fmt_kpi(total_darf))
+        k2.metric("Meses com DARF", str(int((ir["darf"] > 0).sum())))
+        k3.metric("Prejuízo Swing a compensar", fmt_kpi(-ult["prej_swing_acum"]))
+        k4.metric("Prejuízo DT a compensar", fmt_kpi(-ult["prej_dt_acum"]))
+
+        irv = ir[["periodo", "normal", "daytrade", "darf_swing", "darf_dt", "darf",
+                  "prej_swing_acum", "prej_dt_acum"]].copy()
+        irv.columns = ["Mês", "Swing", "Day Trade", "DARF Swing (15%)", "DARF DT (20%)",
+                       "DARF Total", "Prej. Swing acum.", "Prej. DT acum."]
+        st.dataframe(
+            irv.style
+               .format({c: brl for c in irv.columns if c != "Mês"})
+               .map(color_result, subset=["Swing", "Day Trade"]),
+            width="stretch", hide_index=True,
+        )
+        st.download_button("⬇️ Baixar CSV (IR)", irv.to_csv(index=False).encode("utf-8"),
+                           "resumo_ir.csv", "text/csv")
+
+        st.markdown(
+            "<div style='background:#161d30;border:1px solid #243049;border-left:4px solid #f59e0b;"
+            "border-radius:10px;padding:12px 16px;margin-top:10px;font-size:.84rem;color:#cbd5e1'>"
+            "⚠️ <b>Estimativa</b> para planejamento. Considera swing a 15% e day trade a 20% "
+            "com compensação de prejuízos em buckets separados. <b>Não</b> considera a isenção "
+            "de R$20.000/mês em vendas de ações, IRRF retido na fonte, nem regras específicas de "
+            "FII. DARF abaixo de R$10 não é recolhido (acumula). Confirme com seu contador."
+            "</div>", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
