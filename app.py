@@ -313,6 +313,52 @@ def trades_fechados(df: pd.DataFrame) -> pd.DataFrame:
     return df[(df["res_normal"] != 0) | (df["res_daytrade"] != 0)].copy()
 
 
+def _com_lado(df: pd.DataFrame) -> pd.DataFrame:
+    """Anota cada operação como Compra/Venda e separa volume por lado."""
+    d = df.copy()
+    d["lado"] = np.where(d["tipo"].str.startswith("Compra"), "Compra", "Venda")
+    d["vol_compra"] = np.where(d["lado"] == "Compra", d["valor"], 0.0)
+    d["vol_venda"] = np.where(d["lado"] == "Venda", d["valor"], 0.0)
+    return d
+
+
+def por_mercado(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+    g = (df.groupby("mercado")
+           .agg(normal=("res_normal", "sum"), daytrade=("res_daytrade", "sum"),
+                outros=("res_outros", "sum"), operacoes=("id", "count"),
+                volume=("valor", "sum"))
+           .reset_index())
+    g["total"] = g["normal"] + g["daytrade"] + g["outros"]
+    return g.sort_values("total", ascending=False)
+
+
+def volume_mensal(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+    d = _com_lado(df)
+    g = (d.groupby("periodo")
+           .agg(volume=("valor", "sum"), compras=("vol_compra", "sum"),
+                vendas=("vol_venda", "sum"), operacoes=("id", "count"))
+           .reset_index().sort_values("periodo"))
+    return g
+
+
+def por_dia_semana(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+    d = df.dropna(subset=["data_dt"]).copy()
+    d["dow"] = d["data_dt"].dt.weekday
+    g = (d.groupby("dow")
+           .agg(resultado=("resultado", "sum"), volume=("valor", "sum"),
+                operacoes=("id", "count"))
+           .reset_index())
+    nomes = {0: "Seg", 1: "Ter", 2: "Qua", 3: "Qui", 4: "Sex", 5: "Sáb", 6: "Dom"}
+    g["dia"] = g["dow"].map(nomes)
+    return g.sort_values("dow")
+
+
 def metricas(df: pd.DataFrame) -> dict:
     fechados = trades_fechados(df)
     if fechados.empty:
@@ -507,7 +553,7 @@ with hcol2:
 menu = st.radio(
     "Navegação",
     ["🏠 Visão Geral", "📈 Performance Mensal", "💼 Por Ativo",
-     "⚡ Day Trade vs Swing", "🧮 Métricas", "📑 IR / Anual",
+     "📊 Análise", "⚡ Day Trade vs Swing", "🧮 Métricas", "📑 IR / Anual",
      "📋 Operações", "📥 Importar"],
     horizontal=True, label_visibility="collapsed",
 )
@@ -659,6 +705,113 @@ elif menu == "💼 Por Ativo":
         )
         st.download_button("⬇️ Baixar CSV", disp.to_csv(index=False).encode("utf-8"),
                            "resultado_por_ativo.csv", "text/csv")
+
+
+# ─────────────────────────────────────────────
+# PÁGINA: ANÁLISE DETALHADA
+# ─────────────────────────────────────────────
+elif menu == "📊 Análise":
+    st.title("Análise Detalhada das Operações")
+    if df_all.empty:
+        st.info("Nenhum dado carregado.")
+    else:
+        dl = _com_lado(df_all)
+        vol_total = df_all["valor"].sum()
+        vol_compra = dl["vol_compra"].sum()
+        vol_venda = dl["vol_venda"].sum()
+        n_ops = len(df_all)
+        n_compras = int((dl["lado"] == "Compra").sum())
+        n_vendas = int((dl["lado"] == "Venda").sum())
+        ticket = vol_total / n_ops if n_ops else 0.0
+
+        # ── Somatórios de volume ──
+        st.subheader("Volume Operado")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Volume Total", fmt_kpi(vol_total))
+        c2.metric("Compras", fmt_kpi(vol_compra), f"{n_compras} ops")
+        c3.metric("Vendas", fmt_kpi(vol_venda), f"{n_vendas} ops")
+        c4.metric("Ticket Médio", fmt_kpi(ticket))
+
+        c5, c6, c7, c8 = st.columns(4)
+        c5.metric("Operações", str(n_ops))
+        c6.metric("Day Trade", str(int((df_all["daytrade"] == 1).sum())))
+        c7.metric("Swing", str(int((df_all["daytrade"] == 0).sum())))
+        c8.metric("Ativos Distintos", str(df_all["ticker"].nunique()))
+
+        # ── Resultado por mercado ──
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.subheader("Resultado por Mercado")
+        pm = por_mercado(df_all)
+        cma, cmb = st.columns([3, 2])
+        with cma:
+            ch = alt.Chart(pm).mark_bar().encode(
+                x=alt.X("total:Q", title="Resultado (R$)"),
+                y=alt.Y("mercado:N", sort="-x", title=""),
+                color=alt.Color("total:Q", scale=alt.Scale(scheme="redyellowgreen"), legend=None),
+                tooltip=["mercado", alt.Tooltip("total:Q", format=",.2f"),
+                         alt.Tooltip("volume:Q", format=",.2f"), "operacoes"])
+            st.altair_chart(ch, width="stretch")
+        with cmb:
+            pmd = pm[["mercado", "operacoes", "total"]].copy()
+            pmd.columns = ["Mercado", "Ops", "Resultado"]
+            st.dataframe(pmd.style.format({"Resultado": brl})
+                         .map(color_result, subset=["Resultado"]),
+                         width="stretch", hide_index=True)
+
+        # ── Volume operado por mês ──
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.subheader("Volume Operado por Mês")
+        vm = volume_mensal(df_all)
+        vmm = vm.melt(id_vars="periodo", value_vars=["compras", "vendas"],
+                      var_name="lado", value_name="valor")
+        vmm["lado"] = vmm["lado"].map({"compras": "Compras", "vendas": "Vendas"})
+        ch = alt.Chart(vmm).mark_bar().encode(
+            x=alt.X("periodo:N", title="Mês", axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y("valor:Q", title="Volume (R$)"),
+            color=alt.Color("lado:N", title="",
+                            scale=alt.Scale(domain=["Compras", "Vendas"], range=[AZUL, "#f59e0b"])),
+            tooltip=["periodo", "lado", alt.Tooltip("valor:Q", format=",.2f")])
+        st.altair_chart(ch, width="stretch")
+
+        # ── Resultado por dia da semana ──
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.subheader("Resultado por Dia da Semana")
+        ds = por_dia_semana(df_all)
+        ds["cor"] = ds["resultado"].apply(lambda v: "pos" if v >= 0 else "neg")
+        cda, cdb = st.columns(2)
+        with cda:
+            ch = alt.Chart(ds).mark_bar().encode(
+                x=alt.X("dia:N", sort=list(ds["dia"]), title=""),
+                y=alt.Y("resultado:Q", title="Resultado (R$)"),
+                color=alt.Color("cor:N", legend=None,
+                                scale=alt.Scale(domain=["pos", "neg"], range=[VERDE, VERMELHO])),
+                tooltip=["dia", alt.Tooltip("resultado:Q", format=",.2f"), "operacoes"])
+            st.altair_chart(ch, width="stretch")
+        with cdb:
+            ch = alt.Chart(ds).mark_bar(color=AZUL).encode(
+                x=alt.X("dia:N", sort=list(ds["dia"]), title=""),
+                y=alt.Y("operacoes:Q", title="Nº de Operações"),
+                tooltip=["dia", "operacoes"])
+            st.altair_chart(ch, width="stretch")
+
+        # ── Contribuição acumulada (Pareto) ──
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.subheader("Concentração do Resultado (Pareto por Ativo)")
+        ra = resumo_ativo(df_all).sort_values("total", ascending=False).reset_index(drop=True)
+        ra_pos = ra[ra["total"] > 0].copy()
+        if not ra_pos.empty:
+            ra_pos["acum_pct"] = ra_pos["total"].cumsum() / ra_pos["total"].sum() * 100
+            ra_pos["rank"] = range(1, len(ra_pos) + 1)
+            base = alt.Chart(ra_pos.head(20))
+            barras = base.mark_bar(color=VERDE).encode(
+                x=alt.X("ticker:N", sort="-y", title=""),
+                y=alt.Y("total:Q", title="Resultado (R$)"),
+                tooltip=["ticker", alt.Tooltip("total:Q", format=",.2f"),
+                         alt.Tooltip("acum_pct:Q", format=".1f", title="% acum.")])
+            st.altair_chart(barras, width="stretch")
+            n80 = int((ra_pos["acum_pct"] <= 80).sum()) + 1
+            st.caption(f"📌 Os {min(n80, len(ra_pos))} ativos mais lucrativos concentram ~80% "
+                       f"de todo o ganho positivo do período.")
 
 
 # ─────────────────────────────────────────────
@@ -889,7 +1042,14 @@ elif menu == "📋 Operações":
         elif ftipo == "Swing":
             d = d[d["daytrade"] == 0]
 
-        st.caption(f"{len(d)} operação(ões)")
+        # ── Somatórios do filtro atual ──
+        dl = _com_lado(d)
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Operações", str(len(d)))
+        s2.metric("Volume Comprado", fmt_kpi(dl["vol_compra"].sum()))
+        s3.metric("Volume Vendido", fmt_kpi(dl["vol_venda"].sum()))
+        s4.metric("Resultado", fmt_kpi(d["resultado"].sum()))
+
         disp = d[["data", "mercado", "ticker", "tipo", "quantidade", "preco",
                   "valor", "resultado"]].copy()
         disp.columns = ["Data", "Mercado", "Ativo", "Tipo", "Qtd", "Preço", "Valor", "Resultado"]
