@@ -310,11 +310,27 @@ def load_nomad(_key: str) -> pd.DataFrame:
     df = pd.DataFrame(ops)
     if df.empty:
         return df
+    df = df[[c for c in df.columns if not c.startswith("_")]].copy()  # tira detalhe interno
     df.insert(0, "id", range(1, len(df) + 1))
     df["daytrade"] = df["daytrade"].astype(int)
     df["data_dt"] = pd.to_datetime(df["data"], format="%d/%m/%y", errors="coerce")
     df["resultado"] = df["res_normal"] + df["res_daytrade"]
     return df
+
+
+@st.cache_data(show_spinner=False)
+def load_nomad_raw(_key: str) -> list[dict]:
+    """Operações Nomad com o detalhe interno (lotes casados) para conversão cambial."""
+    from nomad import apurar_fifo, parse_nomad_trades
+    trades, dividendos = [], []
+    for f in sorted(glob.glob(os.path.join(RELATORIOS_DIR, NOMAD_GLOB))):
+        try:
+            tr, dv = parse_nomad_trades(f)
+            trades += tr
+            dividendos += dv
+        except Exception as exc:
+            log.warning("Falha Nomad raw %s: %s", f, exc)
+    return apurar_fifo(trades, dividendos)
 
 
 @st.cache_data(show_spinner=False)
@@ -1035,69 +1051,115 @@ elif menu == "📑 IR / Anual":
 
             st.markdown("<hr>", unsafe_allow_html=True)
             st.subheader("📄 Gerar Dados para a Declaração de IR")
-            cca, ccb = st.columns([1, 2])
-            with cca:
-                cambio = st.number_input(
-                    "Cotação USD→BRL (opcional)", min_value=0.0, value=0.0,
-                    step=0.01, format="%.4f",
-                    help="Se informar, gera colunas em R$. A Receita exige a PTAX da data "
-                         "de cada operação — aqui é uma conversão única aproximada.")
-            usar_rs = cambio > 0
+            raw = load_nomad_raw(_nomad_cache_key())
+            vendas_raw = [o for o in raw if o["tipo"].startswith("Venda")]
+            divs_raw = [o for o in raw if o["tipo"] == "Dividendo"]
 
-            def _rs(v):
-                return v * cambio
+            modo = st.radio(
+                "Conversão para reais (R$)",
+                ["Somente US$", "Câmbio manual (cotação única)", "Automático (PTAX/BCB)"],
+                horizontal=True,
+            )
+
+            ptax_map: dict = {}
+            fallback = 0.0
+            if modo == "Câmbio manual (cotação única)":
+                fallback = st.number_input("Cotação USD→BRL", min_value=0.0, value=0.0,
+                                           step=0.01, format="%.4f")
+            elif modo == "Automático (PTAX/BCB)":
+                from cambio import get_ptax
+                datas = set()
+                for o in vendas_raw:
+                    datas.add(o["_iso"])
+                    datas.update(l[0] for l in o["_lotes"])
+                datas.update(o["_iso"] for o in divs_raw)
+                for p in posicoes:
+                    datas.update(l[0] for l in p["lotes"])
+                with st.spinner("Buscando cotações PTAX no Banco Central…"):
+                    ptax_map = get_ptax(datas)
+                faltam = sorted(d for d in datas if d not in ptax_map)
+                st.caption(f"PTAX obtida para {len(ptax_map)} de {len(datas)} datas."
+                           + (f" {len(faltam)} sem cotação — informe um câmbio de reserva."
+                              if faltam else " ✅"))
+                if faltam:
+                    fallback = st.number_input("Câmbio de reserva (datas sem PTAX)",
+                                               min_value=0.0, value=0.0, step=0.01, format="%.4f")
+
+            def taxa(iso: str, lado: str):
+                if iso in ptax_map:
+                    return ptax_map[iso][lado]
+                return fallback if fallback > 0 else None
+
+            def custo_rs(lotes):
+                total = 0.0
+                for data_iso, _q, custo_usd in lotes:
+                    t = taxa(data_iso, "venda")  # aquisição → PTAX venda
+                    if t is None:
+                        return None
+                    total += custo_usd * t
+                return total
+
+            usar_rs = modo != "Somente US$"
 
             # ── 1) Bens e Direitos (posições em aberto) ──
             bd_rows = []
             for p in posicoes:
+                c_rs = custo_rs(p["lotes"]) if usar_rs else None
                 disc = (f"{p['quantidade']:.5f} ação(ões) de {p['nome']} ({p['symbol']}), "
                         f"negociada(s) em bolsa dos EUA, sob custódia da Apex Clearing Corp. "
                         f"via corretora Nomad. Custo de aquisição US$ {p['custo_total']:.2f}")
-                if usar_rs:
-                    disc += f" (R$ {_rs(p['custo_total']):.2f})"
+                if c_rs is not None:
+                    disc += f" (R$ {c_rs:.2f})"
                 row = {"Ativo": p["symbol"], "Nome": p["nome"], "País": "249 - EUA",
                        "Quantidade": round(p["quantidade"], 5),
                        "Custo US$": round(p["custo_total"], 2)}
                 if usar_rs:
-                    row["Custo R$"] = round(_rs(p["custo_total"]), 2)
+                    row["Custo R$"] = round(c_rs, 2) if c_rs is not None else None
                 row["Discriminação"] = disc
                 bd_rows.append(row)
             bd = pd.DataFrame(bd_rows)
 
             # ── 2) Ganhos de Capital (cada venda realizada) ──
-            vendas = dfn[dfn["tipo"].str.startswith("Venda")].copy()
-            vendas["custo"] = vendas["valor"] - vendas["resultado"]
-            gc = pd.DataFrame({
-                "Data": vendas["data"], "Ativo": vendas["ticker"],
-                "Quantidade": vendas["quantidade"].round(5),
-                "Venda US$": vendas["valor"].round(2),
-                "Custo US$": vendas["custo"].round(2),
-                "Ganho US$": vendas["resultado"].round(2),
-            })
-            if usar_rs:
-                for c in ["Venda", "Custo", "Ganho"]:
-                    gc[f"{c} R$"] = (gc[f"{c} US$"] * cambio).round(2)
+            gc_rows = []
+            for o in vendas_raw:
+                bruto = o["_venda_bruta"]
+                comm = o["_comissao"]
+                res = o["res_normal"] + o["res_daytrade"]
+                custo_usd = bruto - comm - res
+                row = {"Data": o["data"], "Ativo": o["ticker"],
+                       "Quantidade": round(o["quantidade"], 5),
+                       "Venda US$": round(bruto, 2), "Custo US$": round(custo_usd, 2),
+                       "Ganho US$": round(res, 2), "_periodo": o["periodo"]}
+                if usar_rs:
+                    tc = taxa(o["_iso"], "compra")  # alienação → PTAX compra
+                    venda_rs = bruto * tc if tc is not None else None
+                    comm_rs = comm * tc if tc is not None else None
+                    c_rs = custo_rs(o["_lotes"])
+                    ganho_rs = (venda_rs - comm_rs - c_rs
+                                if None not in (venda_rs, comm_rs, c_rs) else None)
+                    row["Venda R$"] = round(venda_rs, 2) if venda_rs is not None else None
+                    row["Custo R$"] = round(c_rs, 2) if c_rs is not None else None
+                    row["Ganho R$"] = round(ganho_rs, 2) if ganho_rs is not None else None
+                gc_rows.append(row)
+            gc = pd.DataFrame(gc_rows)
 
             # ── 2b) Ganhos de Capital consolidado por mês ──
-            gm = vendas.groupby("periodo").agg(
-                alienacoes=("valor", "sum"), ganho=("resultado", "sum")).reset_index()
-            gcm = pd.DataFrame({
-                "Mês": gm["periodo"],
-                "Alienações US$": gm["alienacoes"].round(2),
-                "Ganho US$": gm["ganho"].round(2),
-            })
-            if usar_rs:
-                gcm["Alienações R$"] = (gcm["Alienações US$"] * cambio).round(2)
-                gcm["Ganho R$"] = (gcm["Ganho US$"] * cambio).round(2)
+            cols_soma = ["Venda US$", "Ganho US$"] + (["Venda R$", "Ganho R$"] if usar_rs else [])
+            gcm = (gc.groupby("_periodo")[cols_soma].sum(min_count=1).reset_index()
+                     .rename(columns={"_periodo": "Mês", "Venda US$": "Alienações US$",
+                                      "Venda R$": "Alienações R$"}))
+            gc = gc.drop(columns=["_periodo"])
 
             # ── 3) Dividendos ──
-            divs = dfn[dfn["tipo"] == "Dividendo"].copy()
-            dv = pd.DataFrame({
-                "Data": divs["data"], "Ativo": divs["ticker"],
-                "Valor US$": divs["res_outros"].round(2),
-            })
-            if usar_rs:
-                dv["Valor R$"] = (dv["Valor US$"] * cambio).round(2)
+            dv_rows = []
+            for o in divs_raw:
+                row = {"Data": o["data"], "Ativo": o["ticker"],
+                       "Valor US$": round(o["res_outros"], 2)}
+                if usar_rs:
+                    t = taxa(o["_iso"], "compra")
+                    row["Valor R$"] = round(o["res_outros"] * t, 2) if t is not None else None
+                dv_rows.append(row)
+            dv = pd.DataFrame(dv_rows)
 
             st.markdown("**1 · Bens e Direitos** (posição na data do último extrato)")
             st.dataframe(bd, width="stretch", hide_index=True)
@@ -1128,10 +1190,10 @@ elif menu == "📑 IR / Anual":
                 "⚠️ <b>Material de apoio — confira com seu contador.</b> Investimentos no exterior "
                 "seguem a <b>Lei 14.754/2023</b> (vigente desde 2024): os resultados de aplicações "
                 "financeiras no exterior são apurados <b>anualmente</b> e tributados a <b>15%</b>, "
-                "declarados na DAA. A conversão para reais deve usar a <b>cotação PTAX</b> da data de "
-                "cada operação (compra: PTAX venda; venda/dividendo: conforme a regra aplicável) — "
-                "este ambiente não acessa a PTAX, por isso os valores base estão em US$ e a conversão "
-                "em R$ é aproximada (cotação única). Posições e ganhos são apurados por <b>FIFO</b>."
+                "declarados na DAA. No modo <b>Automático</b>, a conversão usa a <b>PTAX oficial do "
+                "Banco Central</b> da data de cada operação (aquisição → dólar de venda; alienação e "
+                "dividendo → dólar de compra); em datas sem pregão usa o último PTAX anterior. "
+                "Posições, custos e ganhos são apurados por <b>FIFO</b>."
                 "</div>", unsafe_allow_html=True)
             st.stop()
 
