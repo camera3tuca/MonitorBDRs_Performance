@@ -1101,21 +1101,32 @@ elif menu == "📑 IR / Anual":
 
             usar_rs = modo != "Somente US$"
 
-            # ── 1) Bens e Direitos (posições em aberto) ──
+            # ── 1) Bens e Direitos — colunas iguais às da ficha do programa ──
+            ano = int(anos[-1])
+            ano_ant = ano - 1
+            col_ant = f"Situação em 31/12/{ano_ant} (R$)"
+            col_atual = f"Situação em 31/12/{ano} (R$)"
             bd_rows = []
             for p in posicoes:
                 c_rs = custo_rs(p["lotes"]) if usar_rs else None
                 disc = (f"{p['quantidade']:.5f} ação(ões) de {p['nome']} ({p['symbol']}), "
-                        f"negociada(s) em bolsa dos EUA, sob custódia da Apex Clearing Corp. "
-                        f"via corretora Nomad. Custo de aquisição US$ {p['custo_total']:.2f}")
+                        f"negociadas em bolsa dos EUA, sob custódia da Apex Clearing Corp. "
+                        f"por meio da corretora Nomad (conta NTKY749). "
+                        f"Custo médio de aquisição US$ {p['custo_total']:.2f}")
                 if c_rs is not None:
-                    disc += f" (R$ {c_rs:.2f})"
-                row = {"Ativo": p["symbol"], "Nome": p["nome"], "País": "249 - EUA",
-                       "Quantidade": round(p["quantidade"], 5),
-                       "Custo US$": round(p["custo_total"], 2)}
-                if usar_rs:
-                    row["Custo R$"] = round(c_rs, 2) if c_rs is not None else None
-                row["Discriminação"] = disc
+                    disc += f" (R$ {c_rs:.2f} pela PTAX das datas de compra)"
+                disc += "."
+                row = {
+                    "Grupo": "",             # confirmar com contador (aplic. financeira no exterior)
+                    "Código": "",            # confirmar com contador
+                    "Localização (País)": "249 - Estados Unidos",
+                    "Discriminação": disc,
+                    col_ant: 0.00,           # começou a operar em 2026 → nada em 31/12 anterior
+                    col_atual: (round(c_rs, 2) if c_rs is not None else None),
+                    "Ativo": p["symbol"],
+                    "Quantidade": round(p["quantidade"], 5),
+                    "Custo US$": round(p["custo_total"], 2),
+                }
                 bd_rows.append(row)
             bd = pd.DataFrame(bd_rows)
 
@@ -1148,9 +1159,23 @@ elif menu == "📑 IR / Anual":
             gcm = (gc.groupby("_periodo")[cols_soma].sum(min_count=1).reset_index()
                      .rename(columns={"_periodo": "Mês", "Venda US$": "Alienações US$",
                                       "Venda R$": "Alienações R$"}))
+            gcm = gcm.rename(columns={"Ganho US$": "Resultado US$", "Ganho R$": "Resultado R$"})
             gc = gc.drop(columns=["_periodo"])
 
-            # ── 3) Dividendos ──
+            # ── 3) Rendimentos de aplicações financeiras no exterior (anual, Lei 14.754) ──
+            rend_rows = []
+            for a in anos:
+                sub = gcm[gcm["Mês"].str.startswith(a)]
+                ganho_usd = sub["Resultado US$"].sum()
+                linha = {"Ano": a, "Resultado US$": round(ganho_usd, 2)}
+                if usar_rs and "Resultado R$" in gcm:
+                    ganho_rs = sub["Resultado R$"].sum()
+                    linha["Resultado R$"] = round(ganho_rs, 2)
+                    linha["Imposto 15% (R$)"] = round(max(ganho_rs, 0) * 0.15, 2)
+                rend_rows.append(linha)
+            rend = pd.DataFrame(rend_rows)
+
+            # ── 4) Dividendos ──
             dv_rows = []
             for o in divs_raw:
                 row = {"Data": o["data"], "Ativo": o["ticker"],
@@ -1161,21 +1186,53 @@ elif menu == "📑 IR / Anual":
                 dv_rows.append(row)
             dv = pd.DataFrame(dv_rows)
 
-            st.markdown("**1 · Bens e Direitos** (posição na data do último extrato)")
+            # ── Instruções: onde cada aba entra no programa "Meu Imposto de Renda" ──
+            instru = pd.DataFrame([
+                {"Aba desta planilha": "Bens e Direitos",
+                 "Ficha no programa Meu Imposto de Renda": "Bens e Direitos",
+                 "Como preencher": "Um item por ativo. Grupo/Código: confirmar (aplicação "
+                 "financeira no exterior — Lei 14.754/2023). Localização: 249 - Estados Unidos. "
+                 "Cole a Discriminação. Situação em 31/12 do ano anterior = R$0,00; "
+                 "atualize a do ano-base com a posição em 31/12."},
+                {"Aba desta planilha": "Rendimentos (anual)",
+                 "Ficha no programa Meu Imposto de Renda":
+                 "Rendimentos Tributáveis - Aplicações Financeiras no Exterior (15%)",
+                 "Como preencher": "Informe o resultado (ganho) anual em R$. O programa aplica "
+                 "os 15% automaticamente. Valores por mês/venda ficam nas outras abas como memória "
+                 "de cálculo."},
+                {"Aba desta planilha": "Dividendos",
+                 "Ficha no programa Meu Imposto de Renda":
+                 "Rendimentos recebidos do exterior (carnê-leão)",
+                 "Como preencher": "Dividendos são tributados via carnê-leão no mês do "
+                 "recebimento; converta pela PTAX de compra da data (já feito na coluna R$)."},
+                {"Aba desta planilha": "Vendas / Ganhos Mensais",
+                 "Ficha no programa Meu Imposto de Renda": "— (memória de cálculo)",
+                 "Como preencher": "Detalhamento de cada venda e o consolidado por mês, apurados "
+                 "por FIFO com PTAX por data. Guarde como comprovação."},
+            ])
+
+            st.markdown(f"**1 · Bens e Direitos** — colunas iguais à ficha do programa")
             st.dataframe(bd, width="stretch", hide_index=True)
-            st.markdown("**2 · Ganhos de Capital — consolidado mensal**")
+            st.caption(f"Você começou a operar em {ano}, então a Situação em 31/12/{ano_ant} é "
+                       f"R$ 0,00. A coluna de 31/12/{ano} traz a posição do último extrato — "
+                       f"atualize com a posição do último dia do ano ao declarar.")
+            st.markdown("**2 · Rendimentos — resultado anual (Lei 14.754/2023, 15%)**")
+            st.dataframe(rend, width="stretch", hide_index=True)
+            st.markdown("**3 · Ganhos por mês** (memória de cálculo)")
             st.dataframe(gcm, width="stretch", hide_index=True)
             with st.expander(f"Ver as {len(gc)} vendas detalhadas e {len(dv)} dividendos"):
-                st.markdown("**Vendas (ganho de capital)**")
+                st.markdown("**Vendas (apuração FIFO)**")
                 st.dataframe(gc, width="stretch", hide_index=True)
                 st.markdown("**Dividendos**")
                 st.dataframe(dv, width="stretch", hide_index=True)
 
-            # ── Excel consolidado ──
+            # ── Excel consolidado (abas nomeadas conforme as fichas) ──
             import io
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+                instru.to_excel(xw, sheet_name="Instruções", index=False)
                 bd.to_excel(xw, sheet_name="Bens e Direitos", index=False)
+                rend.to_excel(xw, sheet_name="Rendimentos (anual)", index=False)
                 gcm.to_excel(xw, sheet_name="Ganhos Mensais", index=False)
                 gc.to_excel(xw, sheet_name="Vendas (detalhe)", index=False)
                 dv.to_excel(xw, sheet_name="Dividendos", index=False)
