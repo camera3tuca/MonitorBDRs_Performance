@@ -66,10 +66,12 @@ def parse_nomad_trades(file_obj) -> tuple[list[dict], list[dict]]:
                     comm = _num(tk[-4]) or 0.0
                     if qty is None or price is None:
                         continue
+                    nome = " ".join(tk[3:-8])  # descrição/nome da empresa
                     trades.append({
                         "lado": tk[0],
                         "trade_date": tk[1],
                         "symbol": symbol,
+                        "nome": nome,
                         "quantidade": abs(qty),
                         "preco": price,
                         "valor": net if net is not None else abs(qty) * price,
@@ -174,6 +176,51 @@ def apurar_fifo(trades: list[dict], dividendos: list[dict]) -> list[dict]:
 
     ops.sort(key=lambda o: (o["periodo"], o["data"]))
     return ops
+
+
+def posicoes_abertas(trades: list[dict]) -> list[dict]:
+    """
+    Reconstrói, por FIFO, as posições ainda em carteira e seu custo de
+    aquisição (US$) — base para a ficha "Bens e Direitos" da declaração.
+
+    Retorna: [{symbol, nome, quantidade, custo_total, custo_medio}, ...]
+    """
+    trades = sorted(trades, key=lambda t: t["trade_date"])
+    filas: dict[str, deque] = defaultdict(deque)
+    nomes: dict[str, str] = {}
+    for t in trades:
+        sym = t["symbol"]
+        nomes.setdefault(sym, t.get("nome", ""))
+        if t.get("nome"):
+            nomes[sym] = t["nome"]
+        q = t["quantidade"]
+        if t["lado"] == "BUY":
+            filas[sym].append({"qtd": q,
+                               "custo_unit": t["preco"] + (t["comissao"] / q if q else 0.0)})
+        else:
+            rem = q
+            while rem > 1e-12 and filas[sym]:
+                lote = filas[sym][0]
+                m = min(rem, lote["qtd"])
+                lote["qtd"] -= m
+                rem -= m
+                if lote["qtd"] <= 1e-12:
+                    filas[sym].popleft()
+
+    posicoes = []
+    for sym, fila in filas.items():
+        qtd = sum(l["qtd"] for l in fila)
+        if qtd <= 1e-9:
+            continue
+        custo = sum(l["qtd"] * l["custo_unit"] for l in fila)
+        posicoes.append({
+            "symbol": sym,
+            "nome": nomes.get(sym, ""),
+            "quantidade": qtd,
+            "custo_total": custo,
+            "custo_medio": custo / qtd if qtd else 0.0,
+        })
+    return sorted(posicoes, key=lambda p: p["symbol"])
 
 
 def parse_nomad(file_obj) -> list[dict]:
