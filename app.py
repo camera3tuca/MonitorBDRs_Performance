@@ -1117,8 +1117,8 @@ elif menu == "📑 IR / Anual":
                     disc += f" (R$ {c_rs:.2f} pela PTAX das datas de compra)"
                 disc += "."
                 row = {
-                    "Grupo": "",             # confirmar com contador (aplic. financeira no exterior)
-                    "Código": "",            # confirmar com contador
+                    "Grupo": "03 - Participações Societárias",
+                    "Código": "01 - Ações (inclusive as listadas em bolsa)",
                     "Localização (País)": "249 - Estados Unidos",
                     "Discriminação": disc,
                     col_ant: 0.00,           # começou a operar em 2026 → nada em 31/12 anterior
@@ -1190,8 +1190,9 @@ elif menu == "📑 IR / Anual":
             instru = pd.DataFrame([
                 {"Aba desta planilha": "Bens e Direitos",
                  "Ficha no programa Meu Imposto de Renda": "Bens e Direitos",
-                 "Como preencher": "Um item por ativo. Grupo/Código: confirmar (aplicação "
-                 "financeira no exterior — Lei 14.754/2023). Localização: 249 - Estados Unidos. "
+                 "Como preencher": "Um item por ativo. Grupo 03 - Participações Societárias; "
+                 "Código 01 - Ações (inclusive as listadas em bolsa) [conforme IRPF 2026 - "
+                 "confirmar no ano da declaração]. Localização: 249 - Estados Unidos. "
                  "Cole a Discriminação. Situação em 31/12 do ano anterior = R$0,00; "
                  "atualize a do ano-base com a posição em 31/12."},
                 {"Aba desta planilha": "Rendimentos (anual)",
@@ -1216,6 +1217,11 @@ elif menu == "📑 IR / Anual":
             st.caption(f"Você começou a operar em {ano}, então a Situação em 31/12/{ano_ant} é "
                        f"R$ 0,00. A coluna de 31/12/{ano} traz a posição do último extrato — "
                        f"atualize com a posição do último dia do ano ao declarar.")
+            st.caption("ℹ️ Grupo **03 - Participações Societárias** e Código **01 - Ações "
+                       "(inclusive as listadas em bolsa)** conforme as regras do **IRPF 2026** "
+                       "(Lei 14.754/2023). Como a declaração ocorre no ano seguinte ao ano-base, "
+                       "confirme se os códigos seguem os mesmos no programa vigente na data da "
+                       "sua declaração.")
             st.markdown("**2 · Rendimentos — resultado anual (Lei 14.754/2023, 15%)**")
             st.dataframe(rend, width="stretch", hide_index=True)
             st.markdown("**3 · Ganhos por mês** (memória de cálculo)")
