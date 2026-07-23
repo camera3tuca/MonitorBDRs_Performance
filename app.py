@@ -317,6 +317,20 @@ def load_nomad(_key: str) -> pd.DataFrame:
     return df
 
 
+@st.cache_data(show_spinner=False)
+def load_nomad_posicoes(_key: str) -> list[dict]:
+    """Posições Nomad em aberto (FIFO) com custo de aquisição — ficha Bens e Direitos."""
+    from nomad import parse_nomad_trades, posicoes_abertas
+    trades = []
+    for f in sorted(glob.glob(os.path.join(RELATORIOS_DIR, NOMAD_GLOB))):
+        try:
+            tr, _ = parse_nomad_trades(f)
+            trades += tr
+        except Exception as exc:
+            log.warning("Falha Nomad posições %s: %s", f, exc)
+    return posicoes_abertas(trades)
+
+
 # ─────────────────────────────────────────────
 # AGREGAÇÕES E MÉTRICAS
 # ─────────────────────────────────────────────
@@ -1004,10 +1018,13 @@ elif menu == "📑 IR / Anual":
         st.markdown("<hr>", unsafe_allow_html=True)
 
         if is_nomad:
-            # Ações EUA: sem Extrato oficial. Mostra o resultado realizado por
-            # mês (em US$) e uma nota sobre a tributação de bens no exterior.
+            # Usa a base COMPLETA (independe do filtro de período) para o ano fiscal
+            dfn = load_nomad(_nomad_cache_key())
+            posicoes = load_nomad_posicoes(_nomad_cache_key())
+            anos = sorted(dfn["periodo"].str[:4].unique())
+
             st.subheader("Resultado Realizado por Mês (US$)")
-            rm = resumo_mensal(df_all)
+            rm = resumo_mensal(dfn)
             disp = rm[["periodo", "normal", "daytrade", "outros", "total"]].copy()
             disp.columns = ["Mês", "Ganho de Capital", "Day Trade", "Dividendos", "Total"]
             st.dataframe(
@@ -1015,16 +1032,106 @@ elif menu == "📑 IR / Anual":
                     .map(color_result, subset=["Ganho de Capital", "Day Trade", "Dividendos", "Total"]),
                 width="stretch", hide_index=True,
             )
-            st.download_button("⬇️ Baixar CSV", disp.to_csv(index=False).encode("utf-8"),
-                               "resultado_nomad.csv", "text/csv")
+
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.subheader("📄 Gerar Dados para a Declaração de IR")
+            cca, ccb = st.columns([1, 2])
+            with cca:
+                cambio = st.number_input(
+                    "Cotação USD→BRL (opcional)", min_value=0.0, value=0.0,
+                    step=0.01, format="%.4f",
+                    help="Se informar, gera colunas em R$. A Receita exige a PTAX da data "
+                         "de cada operação — aqui é uma conversão única aproximada.")
+            usar_rs = cambio > 0
+
+            def _rs(v):
+                return v * cambio
+
+            # ── 1) Bens e Direitos (posições em aberto) ──
+            bd_rows = []
+            for p in posicoes:
+                disc = (f"{p['quantidade']:.5f} ação(ões) de {p['nome']} ({p['symbol']}), "
+                        f"negociada(s) em bolsa dos EUA, sob custódia da Apex Clearing Corp. "
+                        f"via corretora Nomad. Custo de aquisição US$ {p['custo_total']:.2f}")
+                if usar_rs:
+                    disc += f" (R$ {_rs(p['custo_total']):.2f})"
+                row = {"Ativo": p["symbol"], "Nome": p["nome"], "País": "249 - EUA",
+                       "Quantidade": round(p["quantidade"], 5),
+                       "Custo US$": round(p["custo_total"], 2)}
+                if usar_rs:
+                    row["Custo R$"] = round(_rs(p["custo_total"]), 2)
+                row["Discriminação"] = disc
+                bd_rows.append(row)
+            bd = pd.DataFrame(bd_rows)
+
+            # ── 2) Ganhos de Capital (cada venda realizada) ──
+            vendas = dfn[dfn["tipo"].str.startswith("Venda")].copy()
+            vendas["custo"] = vendas["valor"] - vendas["resultado"]
+            gc = pd.DataFrame({
+                "Data": vendas["data"], "Ativo": vendas["ticker"],
+                "Quantidade": vendas["quantidade"].round(5),
+                "Venda US$": vendas["valor"].round(2),
+                "Custo US$": vendas["custo"].round(2),
+                "Ganho US$": vendas["resultado"].round(2),
+            })
+            if usar_rs:
+                for c in ["Venda", "Custo", "Ganho"]:
+                    gc[f"{c} R$"] = (gc[f"{c} US$"] * cambio).round(2)
+
+            # ── 2b) Ganhos de Capital consolidado por mês ──
+            gm = vendas.groupby("periodo").agg(
+                alienacoes=("valor", "sum"), ganho=("resultado", "sum")).reset_index()
+            gcm = pd.DataFrame({
+                "Mês": gm["periodo"],
+                "Alienações US$": gm["alienacoes"].round(2),
+                "Ganho US$": gm["ganho"].round(2),
+            })
+            if usar_rs:
+                gcm["Alienações R$"] = (gcm["Alienações US$"] * cambio).round(2)
+                gcm["Ganho R$"] = (gcm["Ganho US$"] * cambio).round(2)
+
+            # ── 3) Dividendos ──
+            divs = dfn[dfn["tipo"] == "Dividendo"].copy()
+            dv = pd.DataFrame({
+                "Data": divs["data"], "Ativo": divs["ticker"],
+                "Valor US$": divs["res_outros"].round(2),
+            })
+            if usar_rs:
+                dv["Valor R$"] = (dv["Valor US$"] * cambio).round(2)
+
+            st.markdown("**1 · Bens e Direitos** (posição na data do último extrato)")
+            st.dataframe(bd, width="stretch", hide_index=True)
+            st.markdown("**2 · Ganhos de Capital — consolidado mensal**")
+            st.dataframe(gcm, width="stretch", hide_index=True)
+            with st.expander(f"Ver as {len(gc)} vendas detalhadas e {len(dv)} dividendos"):
+                st.markdown("**Vendas (ganho de capital)**")
+                st.dataframe(gc, width="stretch", hide_index=True)
+                st.markdown("**Dividendos**")
+                st.dataframe(dv, width="stretch", hide_index=True)
+
+            # ── Excel consolidado ──
+            import io
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+                bd.to_excel(xw, sheet_name="Bens e Direitos", index=False)
+                gcm.to_excel(xw, sheet_name="Ganhos Mensais", index=False)
+                gc.to_excel(xw, sheet_name="Vendas (detalhe)", index=False)
+                dv.to_excel(xw, sheet_name="Dividendos", index=False)
+            st.download_button(
+                "⬇️ Baixar planilha completa para IR (Excel)", buf.getvalue(),
+                f"IR_Nomad_{anos[-1]}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
             st.markdown(
                 "<div style='background:#161d30;border:1px solid #243049;border-left:4px solid #f59e0b;"
-                "border-radius:10px;padding:12px 16px;margin-top:10px;font-size:.84rem;color:#cbd5e1'>"
-                "⚠️ Ações nos <b>EUA</b> seguem regras próprias de IR no Brasil: ganho de capital em "
-                "moeda estrangeira (alíquotas progressivas a partir de 15%), com <b>isenção para vendas "
-                "até R$35.000/mês</b> no total de bens no exterior, e conversão pelo câmbio de cada "
-                "operação. Dividendos são tributados via carnê-leão. Estes valores estão em <b>US$</b> e "
-                "são apurados por FIFO — para a declaração, converta para reais e consulte seu contador."
+                "border-radius:10px;padding:12px 16px;margin-top:12px;font-size:.83rem;color:#cbd5e1'>"
+                "⚠️ <b>Material de apoio — confira com seu contador.</b> Investimentos no exterior "
+                "seguem a <b>Lei 14.754/2023</b> (vigente desde 2024): os resultados de aplicações "
+                "financeiras no exterior são apurados <b>anualmente</b> e tributados a <b>15%</b>, "
+                "declarados na DAA. A conversão para reais deve usar a <b>cotação PTAX</b> da data de "
+                "cada operação (compra: PTAX venda; venda/dividendo: conforme a regra aplicável) — "
+                "este ambiente não acessa a PTAX, por isso os valores base estão em US$ e a conversão "
+                "em R$ é aproximada (cotação única). Posições e ganhos são apurados por <b>FIFO</b>."
                 "</div>", unsafe_allow_html=True)
             st.stop()
 
