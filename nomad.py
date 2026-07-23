@@ -117,6 +117,7 @@ def apurar_fifo(trades: list[dict], dividendos: list[dict]) -> list[dict]:
             "mercado": "Ações EUA",
             "ticker": sym,
             "data": _data_br(t["trade_date"]),
+            "_iso": t["trade_date"],
             "quantidade": q,
             "preco": preco,
             "valor": q * preco,
@@ -134,11 +135,14 @@ def apurar_fifo(trades: list[dict], dividendos: list[dict]) -> list[dict]:
             rem = q
             custo = 0.0
             mesmo_dia = True
+            casados = []  # lotes consumidos: (data_aquisição, qtd, custo_usd)
             fila = filas[sym]
             while rem > 1e-12 and fila:
                 lote = fila[0]
                 m = min(rem, lote["qtd"])
-                custo += m * (lote["preco"] + lote["comm_unit"])
+                custo_lote = m * (lote["preco"] + lote["comm_unit"])
+                custo += custo_lote
+                casados.append((lote["data"], m, custo_lote))
                 if lote["data"] != t["trade_date"]:
                     mesmo_dia = False
                 lote["qtd"] -= m
@@ -155,6 +159,11 @@ def apurar_fifo(trades: list[dict], dividendos: list[dict]) -> list[dict]:
                 base["res_daytrade"] = resultado
             else:
                 base["res_normal"] = resultado
+            # Detalhe para conversão cambial (PTAX por data)
+            base["_venda_bruta"] = q * preco
+            base["_comissao"] = comm
+            base["_sell_date"] = t["trade_date"]
+            base["_lotes"] = casados
         ops.append(base)
 
     # dividendos → res_outros
@@ -164,6 +173,7 @@ def apurar_fifo(trades: list[dict], dividendos: list[dict]) -> list[dict]:
             "mercado": "Ações EUA",
             "ticker": d["symbol"],
             "data": _data_br(d["data"]),
+            "_iso": d["data"],
             "tipo": "Dividendo",
             "daytrade": False,
             "quantidade": 0.0,
@@ -196,7 +206,8 @@ def posicoes_abertas(trades: list[dict]) -> list[dict]:
         q = t["quantidade"]
         if t["lado"] == "BUY":
             filas[sym].append({"qtd": q,
-                               "custo_unit": t["preco"] + (t["comissao"] / q if q else 0.0)})
+                               "custo_unit": t["preco"] + (t["comissao"] / q if q else 0.0),
+                               "data": t["trade_date"]})
         else:
             rem = q
             while rem > 1e-12 and filas[sym]:
@@ -213,12 +224,15 @@ def posicoes_abertas(trades: list[dict]) -> list[dict]:
         if qtd <= 1e-9:
             continue
         custo = sum(l["qtd"] * l["custo_unit"] for l in fila)
+        lotes = [(l["data"], l["qtd"], l["qtd"] * l["custo_unit"])
+                 for l in fila if l["qtd"] > 1e-9]
         posicoes.append({
             "symbol": sym,
             "nome": nomes.get(sym, ""),
             "quantidade": qtd,
             "custo_total": custo,
             "custo_medio": custo / qtd if qtd else 0.0,
+            "lotes": lotes,  # [(data_aquisição, qtd, custo_usd)]
         })
     return sorted(posicoes, key=lambda p: p["symbol"])
 
