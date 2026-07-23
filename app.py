@@ -125,16 +125,22 @@ st.markdown("""
 # ─────────────────────────────────────────────
 # FORMATADORES
 # ─────────────────────────────────────────────
+# Moeda corrente (trocada conforme a corretora selecionada)
+CFG = {"moeda": "R$"}
+
+
 def brl(v) -> str:
     try:
-        return f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        s = f"{float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"{CFG['moeda']} {s}"
     except (TypeError, ValueError):
         return str(v)
 
 
 def fmt_kpi(value: float) -> str:
     s = f"{abs(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"R$ {s}" if value >= 0 else f"- R$ {s}"
+    m = CFG["moeda"]
+    return f"{m} {s}" if value >= 0 else f"- {m} {s}"
 
 
 def fmt_pct(value: float, sign: bool = True) -> str:
@@ -274,6 +280,41 @@ def load_ir_oficial(_key: str) -> dict:
         except Exception as exc:
             log.warning("Falha ao ler extrato %s: %s", f, exc)
     return dados
+
+
+NOMAD_GLOB = "Nomad-*.pdf"
+
+
+def _nomad_cache_key() -> str:
+    files = sorted(glob.glob(os.path.join(RELATORIOS_DIR, NOMAD_GLOB)))
+    return "|".join(f"{f}:{os.path.getmtime(f):.0f}" for f in files)
+
+
+@st.cache_data(show_spinner=False)
+def load_nomad(_key: str) -> pd.DataFrame:
+    """
+    Carrega os extratos da Nomad (ações EUA) e apura o resultado realizado
+    via FIFO combinando TODOS os meses (uma venda pode casar com compras de
+    meses anteriores). Devolve no mesmo schema das operações MyCapital.
+    """
+    from nomad import apurar_fifo, parse_nomad_trades
+    trades, dividendos = [], []
+    for f in sorted(glob.glob(os.path.join(RELATORIOS_DIR, NOMAD_GLOB))):
+        try:
+            tr, dv = parse_nomad_trades(f)
+            trades += tr
+            dividendos += dv
+        except Exception as exc:
+            log.warning("Falha ao ler extrato Nomad %s: %s", f, exc)
+    ops = apurar_fifo(trades, dividendos)
+    df = pd.DataFrame(ops)
+    if df.empty:
+        return df
+    df.insert(0, "id", range(1, len(df) + 1))
+    df["daytrade"] = df["daytrade"].astype(int)
+    df["data_dt"] = pd.to_datetime(df["data"], format="%d/%m/%y", errors="coerce")
+    df["resultado"] = df["res_normal"] + df["res_daytrade"]
+    return df
 
 
 # ─────────────────────────────────────────────
@@ -530,25 +571,36 @@ if "importado" not in st.session_state:
     if novos:
         st.session_state["import_msg"] = f"{len(novos)} relatório(s) importado(s) · {n} operações."
 
-df_all = load_ops(conn, _cache_key(conn))
-
-
 # ─────────────────────────────────────────────
-# CABEÇALHO + NAVEGAÇÃO DE TOPO
+# CABEÇALHO + SELETOR DE CORRETORA + NAVEGAÇÃO
 # ─────────────────────────────────────────────
+BROKERS = ["🇧🇷 B3 · MyCapital", "🇺🇸 EUA · Nomad"]
+
 hcol1, hcol2 = st.columns([3, 2])
 with hcol1:
     st.markdown("## 📊 MonitorBDRs · Performance")
 with hcol2:
-    if not df_all.empty:
-        liq = resumo_mensal(df_all)["total"].sum()
-        cor = "#22c55e" if liq >= 0 else "#ef4444"
-        st.markdown(
-            f"<div style='text-align:right;padding-top:14px'>"
-            f"<span style='color:#7c8aa5;font-size:.78rem'>"
-            f"{len(df_all)} operações · {df_all['periodo'].nunique()} meses · acumulado </span>"
-            f"<span style='color:{cor};font-weight:700;font-family:JetBrains Mono,monospace'>{brl(liq)}</span>"
-            f"</div>", unsafe_allow_html=True)
+    corretora = st.radio("Corretora", BROKERS, horizontal=True,
+                         label_visibility="collapsed", key="corretora")
+
+# Fonte de dados e moeda conforme a corretora
+if corretora == "🇺🇸 EUA · Nomad":
+    df_all = load_nomad(_nomad_cache_key())
+    CFG["moeda"] = "US$"
+    is_nomad = True
+else:
+    df_all = load_ops(conn, _cache_key(conn))
+    CFG["moeda"] = "R$"
+    is_nomad = False
+
+if not df_all.empty:
+    liq = resumo_mensal(df_all)["total"].sum()
+    cor = "#22c55e" if liq >= 0 else "#ef4444"
+    st.markdown(
+        f"<div style='color:#7c8aa5;font-size:.82rem;margin-top:-6px'>"
+        f"{len(df_all)} operações · {df_all['periodo'].nunique()} meses · acumulado "
+        f"<span style='color:{cor};font-weight:700;font-family:JetBrains Mono,monospace'>{brl(liq)}</span>"
+        f"</div>", unsafe_allow_html=True)
 
 menu = st.radio(
     "Navegação",
@@ -950,6 +1002,32 @@ elif menu == "📑 IR / Anual":
         )
 
         st.markdown("<hr>", unsafe_allow_html=True)
+
+        if is_nomad:
+            # Ações EUA: sem Extrato oficial. Mostra o resultado realizado por
+            # mês (em US$) e uma nota sobre a tributação de bens no exterior.
+            st.subheader("Resultado Realizado por Mês (US$)")
+            rm = resumo_mensal(df_all)
+            disp = rm[["periodo", "normal", "daytrade", "outros", "total"]].copy()
+            disp.columns = ["Mês", "Ganho de Capital", "Day Trade", "Dividendos", "Total"]
+            st.dataframe(
+                disp.style.format({c: brl for c in disp.columns if c != "Mês"})
+                    .map(color_result, subset=["Ganho de Capital", "Day Trade", "Dividendos", "Total"]),
+                width="stretch", hide_index=True,
+            )
+            st.download_button("⬇️ Baixar CSV", disp.to_csv(index=False).encode("utf-8"),
+                               "resultado_nomad.csv", "text/csv")
+            st.markdown(
+                "<div style='background:#161d30;border:1px solid #243049;border-left:4px solid #f59e0b;"
+                "border-radius:10px;padding:12px 16px;margin-top:10px;font-size:.84rem;color:#cbd5e1'>"
+                "⚠️ Ações nos <b>EUA</b> seguem regras próprias de IR no Brasil: ganho de capital em "
+                "moeda estrangeira (alíquotas progressivas a partir de 15%), com <b>isenção para vendas "
+                "até R$35.000/mês</b> no total de bens no exterior, e conversão pelo câmbio de cada "
+                "operação. Dividendos são tributados via carnê-leão. Estes valores estão em <b>US$</b> e "
+                "são apurados por FIFO — para a declaração, converta para reais e consulte seu contador."
+                "</div>", unsafe_allow_html=True)
+            st.stop()
+
         ir_oficial = load_ir_oficial(_ir_cache_key())
         # Mantém apenas os meses presentes no sistema (exclui meses à frente, ex.: junho)
         periodos_sistema = set(df_all["periodo"].unique())
@@ -1067,22 +1145,20 @@ elif menu == "📋 Operações":
 # PÁGINA: IMPORTAR
 # ─────────────────────────────────────────────
 elif menu == "📥 Importar":
-    st.title("Importar Relatórios MyCapital")
+    st.title("Importar Relatórios")
     st.markdown(
-        "Envie os relatórios **\"Operações no mês\"** (operações/performance) e/ou o "
-        "**\"Extrato Mensal de Resultados\"** (apuração oficial de IR). O tipo é "
-        "detectado automaticamente."
+        "Envie: **MyCapital** — \"Operações no mês\" e/ou \"Extrato Mensal de Resultados\"; "
+        "ou **Nomad** — \"Account Statement\" (ações EUA). O tipo é detectado automaticamente."
     )
     if msg := st.session_state.pop("import_msg", None):
         st.success(msg)
 
-    up = st.file_uploader("Relatórios MyCapital (PDF)", type=["pdf"], accept_multiple_files=True)
+    up = st.file_uploader("Relatórios (PDF)", type=["pdf"], accept_multiple_files=True)
     if up:
         os.makedirs(EXTRATOS_DIR, exist_ok=True)
-        n_extratos = 0
+        n_extratos = n_nomad = 0
         for f in up:
             conteudo = f.getbuffer()
-            # Detecta o tipo pelo conteúdo da primeira página
             try:
                 import pdfplumber
                 f.seek(0)
@@ -1091,24 +1167,33 @@ elif menu == "📥 Importar":
             except Exception:
                 cabecalho = ""
             eh_extrato = "Extrato Mensal de Resultados" in cabecalho
+            eh_nomad = "Nomad Investment Services" in cabecalho
 
-            destino = os.path.join(EXTRATOS_DIR if eh_extrato else RELATORIOS_DIR, f.name)
-            with open(destino, "wb") as out:
-                out.write(conteudo)
-            if eh_extrato:
+            if eh_nomad:
+                nome = f.name if f.name.startswith("Nomad") else f"Nomad-{f.name}"
+                destino = os.path.join(RELATORIOS_DIR, nome)
+                n_nomad += 1
+            elif eh_extrato:
+                destino = os.path.join(EXTRATOS_DIR, f.name)
                 n_extratos += 1
             else:
+                destino = os.path.join(RELATORIOS_DIR, f.name)
                 conn.execute("DELETE FROM operacoes WHERE arquivo=?", (f.name,))
                 conn.execute("DELETE FROM relatorios WHERE nome_arquivo=?", (f.name,))
                 conn.commit()
+            with open(destino, "wb") as out:
+                out.write(conteudo)
         n, novos = processar_relatorios(conn)
         load_ops.clear()
         load_ir_oficial.clear()
+        load_nomad.clear()
         partes = []
         if novos:
             partes.append(f"{len(novos)} relatório(s) de operações · {n} operações")
         if n_extratos:
             partes.append(f"{n_extratos} extrato(s) de IR")
+        if n_nomad:
+            partes.append(f"{n_nomad} extrato(s) Nomad")
         st.success("Importado: " + (" · ".join(partes) if partes else "nada novo") + ".")
         st.rerun()
 
