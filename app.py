@@ -1306,6 +1306,81 @@ elif menu == "📑 IR / Anual":
                 "os prejuízos acumulados absorverem os ganhos. Meses ainda não importados no sistema "
                 "(ex.: posteriores ao último relatório) ficam de fora."
                 "</div>", unsafe_allow_html=True)
+
+            # ─── Gerar dados para a declaração (B3 / Receita) ───
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.subheader("📄 Gerar Dados para a Declaração de IR")
+
+            # 1) Renda Variável (mensal) — direto do Extrato oficial
+            rv = irv.rename(columns={
+                "Swing (15%)": "Operações Comuns (R$)", "Day Trade (20%)": "Day Trade (R$)",
+                "Prej. Swing a compensar": "Prej. Comum a compensar (R$)",
+                "Prej. DT a compensar": "Prej. DT a compensar (R$)"})
+
+            # 2) Rendimentos Isentos — proventos por ativo
+            prov = (df_all[df_all["res_outros"] != 0]
+                    .groupby(["ticker", "mercado"])["res_outros"].sum().reset_index())
+            prov.columns = ["Ativo", "Mercado", "Proventos (R$)"]
+            prov["Proventos (R$)"] = prov["Proventos (R$)"].round(2)
+            prov = prov.sort_values("Proventos (R$)", ascending=False)
+
+            # 3) Bens e Direitos — mapa de Grupo/Código por tipo (IRPF 2026)
+            B3_COD = {
+                "BDR": ("04 - Aplicações e Investimentos",
+                        "04 - Ativos negociados em bolsa no Brasil (BDRs, opções e outros)"),
+                "Ações": ("03 - Participações Societárias",
+                          "01 - Ações (inclusive as listadas em bolsa)"),
+                "Açoes": ("03 - Participações Societárias",
+                          "01 - Ações (inclusive as listadas em bolsa)"),
+                "ETF": ("07 - Fundos", "09 - Fundo de Índice de Mercado (ETF) - Renda Variável"),
+                "Fundos Imobiliários": ("07 - Fundos",
+                                        "03 - Fundo de Investimento Imobiliário (FII)"),
+            }
+            bd_rows = []
+            for merc in sorted(df_all["mercado"].dropna().unique()):
+                g, c = B3_COD.get(merc, ("(confirmar)", "(confirmar)"))
+                tickers = sorted(df_all[df_all["mercado"] == merc]["ticker"].dropna().unique())
+                bd_rows.append({"Tipo de Ativo": merc, "Grupo": g, "Código": c,
+                                "Localização (País)": "105 - Brasil",
+                                "Ativos negociados no período": ", ".join(tickers)})
+            bd_b3 = pd.DataFrame(bd_rows)
+
+            instru = pd.DataFrame([
+                {"Aba": "Renda Variável", "Ficha no programa": "Renda Variável → Operações "
+                 "Comuns / Day-Trade", "Como preencher": "Lance o resultado de cada mês "
+                 "(comum e day-trade). O prejuízo a compensar é preenchido automaticamente pelo "
+                 "programa a partir do mês anterior; confira com estes valores oficiais."},
+                {"Aba": "Rendimentos Isentos", "Ficha no programa": "Rendimentos Isentos e Não "
+                 "Tributáveis", "Como preencher": "Dividendos de ações/BDR e rendimentos de FII "
+                 "são isentos (código próprio). JCP é tributado exclusivamente na fonte."},
+                {"Aba": "Bens e Direitos (códigos)", "Ficha no programa": "Bens e Direitos",
+                 "Como preencher": "Use o Grupo/Código de cada tipo (IRPF 2026). Quantidade e "
+                 "custo em 31/12 devem vir do INFORME DE RENDIMENTOS da corretora — posições "
+                 "anteriores a 2025 não estão neste app."},
+            ])
+
+            st.markdown("**1 · Renda Variável (mensal)** — apuração oficial")
+            st.dataframe(rv, width="stretch", hide_index=True)
+            st.markdown("**2 · Rendimentos Isentos — Proventos por ativo**")
+            st.dataframe(prov, width="stretch", hide_index=True)
+            st.markdown("**3 · Bens e Direitos — Grupo/Código por tipo (IRPF 2026)**")
+            st.dataframe(bd_b3, width="stretch", hide_index=True)
+            st.caption("⚠️ As **quantidades e custos** dos Bens e Direitos em 31/12 devem sair do "
+                       "**Informe de Rendimentos** da corretora — seu histórico começou antes de "
+                       "2025, então as posições não podem ser reconstruídas aqui. Códigos conforme "
+                       "IRPF 2026; confirme no ano da declaração.")
+
+            import io
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+                instru.to_excel(xw, sheet_name="Instruções", index=False)
+                rv.to_excel(xw, sheet_name="Renda Variável", index=False)
+                prov.to_excel(xw, sheet_name="Rendimentos Isentos", index=False)
+                bd_b3.to_excel(xw, sheet_name="Bens e Direitos (códigos)", index=False)
+            st.download_button(
+                "⬇️ Baixar planilha para IR — B3 (Excel)", buf.getvalue(),
+                "IR_B3_MyCapital.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
             st.subheader("Estimativa de DARF (mensal)")
             st.caption("Sem Extrato Mensal de Resultados importado — exibindo estimativa. "
