@@ -282,6 +282,29 @@ def load_ir_oficial(_key: str) -> dict:
     return dados
 
 
+INFORMES_DIR = "informes_ir"
+
+
+def _informe_cache_key() -> str:
+    files = sorted(glob.glob(os.path.join(INFORMES_DIR, "*.pdf")))
+    return "|".join(f"{f}:{os.path.getmtime(f):.0f}" for f in files)
+
+
+@st.cache_data(show_spinner=False)
+def load_informes(_key: str) -> dict:
+    """Informes de Rendimentos (MyCapital) por ano — posições e rendimentos oficiais."""
+    from informe import parse_informe
+    dados: dict[str, dict] = {}
+    for f in sorted(glob.glob(os.path.join(INFORMES_DIR, "*.pdf"))):
+        try:
+            d = parse_informe(f)
+            if d.get("ano"):
+                dados[d["ano"]] = d
+        except Exception as exc:
+            log.warning("Falha ao ler informe %s: %s", f, exc)
+    return dados
+
+
 NOMAD_GLOB = "Nomad-*.pdf"
 
 
@@ -1324,59 +1347,80 @@ elif menu == "📑 IR / Anual":
             prov["Proventos (R$)"] = prov["Proventos (R$)"].round(2)
             prov = prov.sort_values("Proventos (R$)", ascending=False)
 
-            # 3) Bens e Direitos — mapa de Grupo/Código por tipo (IRPF 2026)
-            B3_COD = {
-                "BDR": ("04 - Aplicações e Investimentos",
-                        "04 - Ativos negociados em bolsa no Brasil (BDRs, opções e outros)"),
-                "Ações": ("03 - Participações Societárias",
-                          "01 - Ações (inclusive as listadas em bolsa)"),
-                "Açoes": ("03 - Participações Societárias",
-                          "01 - Ações (inclusive as listadas em bolsa)"),
-                "ETF": ("07 - Fundos", "09 - Fundo de Índice de Mercado (ETF) - Renda Variável"),
-                "Fundos Imobiliários": ("07 - Fundos",
-                                        "03 - Fundo de Investimento Imobiliário (FII)"),
-            }
-            bd_rows = []
-            for merc in sorted(df_all["mercado"].dropna().unique()):
-                g, c = B3_COD.get(merc, ("(confirmar)", "(confirmar)"))
-                tickers = sorted(df_all[df_all["mercado"] == merc]["ticker"].dropna().unique())
-                bd_rows.append({"Tipo de Ativo": merc, "Grupo": g, "Código": c,
-                                "Localização (País)": "105 - Brasil",
-                                "Ativos negociados no período": ", ".join(tickers)})
-            bd_b3 = pd.DataFrame(bd_rows)
+            # 3) Bens e Direitos / rendimentos — do Informe de Rendimentos oficial
+            informes = load_informes(_informe_cache_key())
+            bd_rows, div_rows, jcp_rows = [], [], []
+            for a in sorted(informes):
+                inf = informes[a]
+                for b in inf["bens_direitos"]:
+                    bd_rows.append({
+                        "Ano": a, "Mercado": b["mercado"], "Grupo": b["grupo"],
+                        "Código": b["codigo"], "Cód. Negociação": b["ticker"],
+                        "CNPJ": b["cnpj"], "Discriminação": b["discriminacao"],
+                        f"31/12/{int(a)-1} (R$)": b["v_ant"], f"31/12/{a} (R$)": b["v_atual"]})
+                for dvd in inf["dividendos"]:
+                    rot = {"09": "09 - Lucros e dividendos", "18": "18 - Bonificações",
+                           "20": "20 - Ganhos líquidos isentos (≤R$20 mil/mês)"}.get(dvd["tipo"], dvd["tipo"])
+                    div_rows.append({"Ano": a, "Tipo": rot, "Fonte Pagadora": dvd["fonte"],
+                                     "CNPJ": dvd["cnpj"], "Valor (R$)": dvd["valor"]})
+                for j in inf["jcp"]:
+                    jcp_rows.append({"Ano": a, "CNPJ": j["cnpj"], "Fonte Pagadora": j["fonte"],
+                                     "Valor (R$)": j["valor"]})
+            bd = pd.DataFrame(bd_rows)
+            div_isentos = pd.DataFrame(div_rows)
+            jcp_df = pd.DataFrame(jcp_rows)
+            tem_informe = not bd.empty
 
             instru = pd.DataFrame([
                 {"Aba": "Renda Variável", "Ficha no programa": "Renda Variável → Operações "
-                 "Comuns / Day-Trade", "Como preencher": "Lance o resultado de cada mês "
-                 "(comum e day-trade). O prejuízo a compensar é preenchido automaticamente pelo "
-                 "programa a partir do mês anterior; confira com estes valores oficiais."},
+                 "Comuns / Day-Trade", "Como preencher": "Lance o resultado de cada mês. "
+                 "O prejuízo a compensar é preenchido pelo programa; confira com estes valores."},
+                {"Aba": "Bens e Direitos", "Ficha no programa": "Bens e Direitos",
+                 "Como preencher": "Um item por linha, com Grupo, Código, Cód. Negociação, CNPJ, "
+                 "Discriminação e o valor em 31/12. Dados oficiais do Informe de Rendimentos."},
                 {"Aba": "Rendimentos Isentos", "Ficha no programa": "Rendimentos Isentos e Não "
-                 "Tributáveis", "Como preencher": "Dividendos de ações/BDR e rendimentos de FII "
-                 "são isentos (código próprio). JCP é tributado exclusivamente na fonte."},
-                {"Aba": "Bens e Direitos (códigos)", "Ficha no programa": "Bens e Direitos",
-                 "Como preencher": "Use o Grupo/Código de cada tipo (IRPF 2026). Quantidade e "
-                 "custo em 31/12 devem vir do INFORME DE RENDIMENTOS da corretora — posições "
-                 "anteriores a 2025 não estão neste app."},
+                 "Tributáveis", "Como preencher": "Dividendos (cód. 09), bonificações (18) e lucro "
+                 "isento de vendas ≤ R$20 mil/mês (20), pela fonte pagadora/CNPJ."},
+                {"Aba": "JCP", "Ficha no programa": "Rendimentos Sujeitos à Tributação Exclusiva",
+                 "Como preencher": "Juros sobre Capital Próprio (cód. 10), por fonte pagadora/CNPJ."},
             ])
 
             st.markdown("**1 · Renda Variável (mensal)** — apuração oficial")
             st.dataframe(rv, width="stretch", hide_index=True)
-            st.markdown("**2 · Rendimentos Isentos — Proventos por ativo**")
-            st.dataframe(prov, width="stretch", hide_index=True)
-            st.markdown("**3 · Bens e Direitos — Grupo/Código por tipo (IRPF 2026)**")
-            st.dataframe(bd_b3, width="stretch", hide_index=True)
-            st.caption("⚠️ As **quantidades e custos** dos Bens e Direitos em 31/12 devem sair do "
-                       "**Informe de Rendimentos** da corretora — seu histórico começou antes de "
-                       "2025, então as posições não podem ser reconstruídas aqui. Códigos conforme "
-                       "IRPF 2026; confirme no ano da declaração.")
+
+            if tem_informe:
+                st.markdown("**2 · Bens e Direitos** — posições em 31/12 (Informe de Rendimentos)")
+                st.dataframe(bd, width="stretch", hide_index=True)
+                st.markdown("**3 · Rendimentos Isentos e Não Tributáveis**")
+                st.dataframe(div_isentos, width="stretch", hide_index=True)
+                if not jcp_df.empty:
+                    st.markdown("**4 · JCP — Tributação Exclusiva**")
+                    st.dataframe(jcp_df, width="stretch", hide_index=True)
+                ret = ", ".join(f"{a}: R$ {informes[a]['ir_retido']:.2f}"
+                                for a in sorted(informes) if informes[a].get("ir_retido"))
+                if ret:
+                    st.caption(f"IR retido na fonte (Lei 11.033/2004): {ret}.")
+                st.success("✅ Bens e Direitos, dividendos, JCP e IR retido vêm do **Informe de "
+                           "Rendimentos oficial** da MyCapital — prontos para a declaração.")
+            else:
+                st.markdown("**2 · Rendimentos Isentos — Proventos por ativo**")
+                st.dataframe(prov, width="stretch", hide_index=True)
+                st.info("Para os **Bens e Direitos** (posições em 31/12), envie o **Informe de "
+                        "Rendimentos** da MyCapital na aba Importar — ele traz as posições oficiais "
+                        "com grupo, código e CNPJ.")
 
             import io
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine="openpyxl") as xw:
                 instru.to_excel(xw, sheet_name="Instruções", index=False)
                 rv.to_excel(xw, sheet_name="Renda Variável", index=False)
-                prov.to_excel(xw, sheet_name="Rendimentos Isentos", index=False)
-                bd_b3.to_excel(xw, sheet_name="Bens e Direitos (códigos)", index=False)
+                if tem_informe:
+                    bd.to_excel(xw, sheet_name="Bens e Direitos", index=False)
+                    div_isentos.to_excel(xw, sheet_name="Rendimentos Isentos", index=False)
+                    if not jcp_df.empty:
+                        jcp_df.to_excel(xw, sheet_name="JCP", index=False)
+                else:
+                    prov.to_excel(xw, sheet_name="Rendimentos Isentos", index=False)
             st.download_button(
                 "⬇️ Baixar planilha para IR — B3 (Excel)", buf.getvalue(),
                 "IR_B3_MyCapital.xlsx",
@@ -1463,7 +1507,8 @@ elif menu == "📥 Importar":
     up = st.file_uploader("Relatórios (PDF)", type=["pdf"], accept_multiple_files=True)
     if up:
         os.makedirs(EXTRATOS_DIR, exist_ok=True)
-        n_extratos = n_nomad = 0
+        os.makedirs(INFORMES_DIR, exist_ok=True)
+        n_extratos = n_nomad = n_informes = 0
         for f in up:
             conteudo = f.getbuffer()
             try:
@@ -1475,11 +1520,15 @@ elif menu == "📥 Importar":
                 cabecalho = ""
             eh_extrato = "Extrato Mensal de Resultados" in cabecalho
             eh_nomad = "Nomad Investment Services" in cabecalho
+            eh_informe = "Informe de Rendimentos para Declaração" in cabecalho
 
             if eh_nomad:
                 nome = f.name if f.name.startswith("Nomad") else f"Nomad-{f.name}"
                 destino = os.path.join(RELATORIOS_DIR, nome)
                 n_nomad += 1
+            elif eh_informe:
+                destino = os.path.join(INFORMES_DIR, f.name)
+                n_informes += 1
             elif eh_extrato:
                 destino = os.path.join(EXTRATOS_DIR, f.name)
                 n_extratos += 1
@@ -1494,11 +1543,14 @@ elif menu == "📥 Importar":
         load_ops.clear()
         load_ir_oficial.clear()
         load_nomad.clear()
+        load_informes.clear()
         partes = []
         if novos:
             partes.append(f"{len(novos)} relatório(s) de operações · {n} operações")
         if n_extratos:
             partes.append(f"{n_extratos} extrato(s) de IR")
+        if n_informes:
+            partes.append(f"{n_informes} informe(s) de rendimentos")
         if n_nomad:
             partes.append(f"{n_nomad} extrato(s) Nomad")
         st.success("Importado: " + (" · ".join(partes) if partes else "nada novo") + ".")
